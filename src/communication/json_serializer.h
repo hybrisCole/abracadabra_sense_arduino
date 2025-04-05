@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 #include "../config/config.h"
 #include "../sensors/imu.h"
+#include "../utils/battery_monitor.h"
 
 class JSONSerializer {
 private:
@@ -23,6 +24,17 @@ public:
     imuObj["gyro_x"] = imu.getGyroX();
     imuObj["gyro_y"] = imu.getGyroY();
     imuObj["gyro_z"] = imu.getGyroZ();
+  }
+
+  void serializeWithBattery(IMUSensor& imu, BatteryMonitor& battery, unsigned long timestamp) {
+    // First add the IMU data
+    serializeIMUData(imu, timestamp);
+    
+    // Add battery information
+    JsonObject batteryObj = doc.createNestedObject("battery");
+    batteryObj["voltage"] = battery.readVoltage();
+    batteryObj["percent"] = battery.getPercentage();
+    batteryObj["status"] = battery.getStatus();
   }
 
   void sendToSerial() {

@@ -21,10 +21,15 @@ unsigned long tapSequenceStartTime = 0;
 // Variables for software double tap detection
 unsigned long lastSingleTapTime = 0;
 bool doubleTapDetected = false;
-#define DOUBLE_TAP_WINDOW 400  // Increased time window for double tap detection (ms)
+#define DOUBLE_TAP_WINDOW 400  // Time window for double tap detection (ms)
 
 // Flag to prevent tap detection during animations
 bool ignoreTaps = false;
+
+// Gesture recording state variables
+bool isRecording = false;
+unsigned long recordingStartTime = 0;
+#define RECORDING_DURATION 2000  // Recording window duration in ms (2 seconds)
 
 // Turn off all LEDs
 void ledOff() {
@@ -95,7 +100,7 @@ void decodeTapSource(uint8_t tapSource) {
   lastTapSource = tapSource;
 }
 
-// Configure tap detection - hybrid approach for better results
+// Configure tap detection
 void configureTapDetection() {
   // Reset the device first to ensure clean configuration
   imu.writeRegister(LSM6DS3_ACC_GYRO_CTRL3_C, 0x01);  // Reset bit
@@ -110,18 +115,17 @@ void configureTapDetection() {
   // TAP_CFG (0x58): Enable X, Y, Z tap detection and LIR (Latched Interrupt)
   imu.writeRegister(LSM6DS3_ACC_GYRO_TAP_CFG1, 0x8F);  // 0x8F = Enable XYZ + LIR
   
-  // Set tap threshold - INCREASED to be LESS sensitive (higher value = less sensitive)
+  // Set tap threshold
   // TAP_THS_6D (0x59): Threshold value
-  imu.writeRegister(LSM6DS3_ACC_GYRO_TAP_THS_6D, 0x08);  // Changed from 0x03 to 0x08 (less sensitive)
+  imu.writeRegister(LSM6DS3_ACC_GYRO_TAP_THS_6D, 0x08);  // 0x08 (less sensitive)
   
   // Configure tap recognition parameters
   // INT_DUR2 (0x5A): Values optimized based on user's tapping pattern
   // bits[7:4]=Duration, bits[3:2]=Quiet, bits[1:0]=Shock
   imu.writeRegister(LSM6DS3_ACC_GYRO_INT_DUR2, 0x26);  // 0x26 = Duration=2, Quiet=1, Shock=2
   
-  // Try both double and single tap detection modes
-  // WAKE_UP_THS (0x5B): 
-  // We'll use double tap mode (Bit 7=0) since we saw it can sometimes work
+  // Configure for double tap detection
+  // WAKE_UP_THS (0x5B): Bit 7=0 for double tap mode
   imu.writeRegister(LSM6DS3_ACC_GYRO_WAKE_UP_THS, 0x00);  // Bit 7=0 for double tap mode
   
   // Read back configuration registers to verify
@@ -134,8 +138,7 @@ void configureTapDetection() {
   imu.readRegister(&intDur2, LSM6DS3_ACC_GYRO_INT_DUR2);
   imu.readRegister(&wakeUpThs, LSM6DS3_ACC_GYRO_WAKE_UP_THS);
   
-  Serial.println("Hybrid Tap Detection Configuration:");
-  Serial.println("(Both hardware and software double-tap detection enabled)");
+  Serial.println("Double Tap Detection Configuration:");
   Serial.print("CTRL1_XL: 0x"); Serial.println(ctrl1, HEX);
   Serial.print("CTRL10_C: 0x"); Serial.println(ctrl10, HEX);
   Serial.print("TAP_CFG: 0x"); Serial.println(tapCfg, HEX);
@@ -143,37 +146,26 @@ void configureTapDetection() {
   Serial.print("INT_DUR2: 0x"); Serial.println(intDur2, HEX);
   Serial.print("WAKE_UP_THS: 0x"); Serial.println(wakeUpThs, HEX);
   
-  Serial.print("Software double tap time window: "); 
+  Serial.print("Software double tap window: "); 
   Serial.print(DOUBLE_TAP_WINDOW);
   Serial.println(" ms");
-  
-  Serial.println("Tap threshold increased - tap detection is less sensitive now");
 }
 
-void showRainbowAnimation() {
-  // Set flag to ignore taps during animation
+// Handle double tap detection - now manages recording window
+void handleDoubleTap() {
+  Serial.println("*** DOUBLE TAP DETECTED! ***");
+
+  // Set flag to ignore taps during gesture recording
   ignoreTaps = true;
   
-  // First pause 200ms as requested
-  delay(200);
+  // Start recording window
+  isRecording = true;
+  recordingStartTime = millis();
   
-  // Flash circular rainbow animation for double tap
-  for (int i = 0; i < 12; i++) {
-    int phase = i % 6;
-    switch(phase) {
-      case 0: setLEDColor(true, false, false); break;   // Red
-      case 1: setLEDColor(true, true, false); break;    // Yellow
-      case 2: setLEDColor(false, true, false); break;   // Green
-      case 3: setLEDColor(false, true, true); break;    // Cyan
-      case 4: setLEDColor(false, false, true); break;   // Blue
-      case 5: setLEDColor(true, false, true); break;    // Magenta
-    }
-    delay(50);  // Fast animation
-  }
-  ledOff();
+  // Set LED to green during recording
+  setLEDColor(false, true, false);
   
-  // Re-enable tap detection after animation
-  ignoreTaps = false;
+  Serial.println("RECORDING STARTED - 2 second window");
 }
 
 void setup() {
@@ -181,9 +173,8 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   
-  Serial.println("XIAO nRF52840 Sense - Double Tap Detection Only");
-  Serial.println("-----------------------------------------------------");
-  Serial.println("DEBUGGING MODE: Detailed tap logging enabled");
+  Serial.println("XIAO nRF52840 Sense - Gesture Recording Window");
+  Serial.println("----------------------------------------------");
   
   // Initialize RGB LED pins
   pinMode(LED_RED, OUTPUT);
@@ -202,21 +193,29 @@ void setup() {
   }
   
   Serial.println("LSM6DS3 initialized successfully");
-  Serial.println("Configuring tap detection...");
   configureTapDetection();
   
-  Serial.println("Tap detection configured successfully");
-  Serial.println("Double tap the board to trigger rainbow animation");
-  Serial.println("Tap debugging is active - watch serial monitor for details");
+  Serial.println("Double tap to start a 2-second gesture recording window");
   
-  // Green LED blink indicates successful initialization
-  setLEDColor(false, true, false);
-  delay(100);
-  ledOff();
+  // Set initial LED color to RED (waiting mode)
+  setLEDColor(true, false, false);
 }
 
 void loop() {
-  // Skip tap detection if we're in animation mode
+  // Check if recording window has ended
+  if (isRecording && (millis() - recordingStartTime >= RECORDING_DURATION)) {
+    // Recording window ended
+    isRecording = false;
+    Serial.println("RECORDING FINISHED");
+    
+    // Return to waiting state (red LED)
+    setLEDColor(true, false, false);
+    
+    // Re-enable tap detection
+    ignoreTaps = false;
+  }
+  
+  // Skip tap detection if we're in recording mode or animation
   if (ignoreTaps) {
     delay(10);
     return;
@@ -228,8 +227,7 @@ void loop() {
   
   // Check for hardware double tap event - look for double tap bit (0x10)
   if (tapSource & 0x10) {
-    Serial.println("\n*** HARDWARE DOUBLE TAP DETECTED! ***");
-    showRainbowAnimation();
+    handleDoubleTap();
   }
   // Also check for single tap events for software double tap detection (bit 3 = 0x08) 
   else if (tapSource & 0x08) {
@@ -238,15 +236,9 @@ void loop() {
     // Software double tap detection - check time since last single tap
     if (currentTime - lastSingleTapTime < DOUBLE_TAP_WINDOW) {
       // This is the second tap within the time window - it's a double tap!
-      Serial.println("\n*** SOFTWARE DOUBLE TAP DETECTED! ***");
-      Serial.print("Time between taps: ");
-      Serial.print(currentTime - lastSingleTapTime);
-      Serial.println(" ms");
-      
-      showRainbowAnimation();
+      handleDoubleTap();
     } else {
       // First tap or too long since last tap
-      // We no longer show any visual feedback for single taps
       Serial.println("Single tap detected - waiting for second tap");
     }
     
@@ -256,14 +248,15 @@ void loop() {
   
   // Additionally detect rapid tap sequences (3+ taps in under 200ms)
   if (tapSequenceActive && tapCount >= 3 && (millis() - tapSequenceStartTime < 200)) {
-    Serial.println("\n*** RAPID TAP SEQUENCE DETECTED! ***");
+    Serial.println("*** RAPID TAP SEQUENCE DETECTED! ***");
     Serial.print(tapCount);
     Serial.println(" taps in rapid succession");
     
     // Reset the sequence to avoid multiple triggers
     tapSequenceActive = false;
     
-    showRainbowAnimation();
+    // Treat rapid tap sequence as double tap
+    handleDoubleTap();
   }
   
   // Display detailed information about the tap source register whenever it's non-zero

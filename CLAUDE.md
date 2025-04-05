@@ -20,7 +20,14 @@
 ## Libraries
 - LSM6DS3 for IMU sensor access
 - ArduinoJson for structured data serialization
+- PCF8563 for RTC (Real-Time Clock) functionality
+- U8x8 for OLED display
 
 ## Hardware
 - Target: XIAO BLE Sense (nRF52840)
 - Sensor: LSM6DS3 IMU (accelerometer/gyroscope)
+- RTC: PCF8563 for timekeeping
+- Display: SSD1306 OLED 128x64
+
+## Code Samples
+- RTC and display example: Code using PCF8563 RTC and SSD1306 OLED to display date/time
