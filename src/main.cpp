@@ -29,7 +29,21 @@ bool ignoreTaps = false;
 // Gesture recording state variables
 bool isRecording = false;
 unsigned long recordingStartTime = 0;
-#define RECORDING_DURATION 2000  // Recording window duration in ms (2 seconds)
+#define RECORDING_DURATION 4000  // Recording window duration in ms (4 seconds)
+
+// Sampling configuration
+#define SAMPLE_RATE_MS 20  // Sample every 20ms (approximately 50Hz)
+unsigned long lastSampleTime = 0;
+unsigned long sampleCount = 0;
+
+// Low-pass filter variables
+float prevAccX = 0, prevAccY = 0, prevAccZ = 0;
+float prevGyroX = 0, prevGyroY = 0, prevGyroZ = 0;
+#define FILTER_ALPHA 0.05  // Filter coefficient (0-1), lower = more filtering (changed from 0.2)
+
+// Gyroscope calibration variables
+float gyroXoffset = 0, gyroYoffset = 0, gyroZoffset = 0;
+bool gyroCalibrated = false;
 
 // Turn off all LEDs
 void ledOff() {
@@ -112,6 +126,9 @@ void configureTapDetection() {
   // Set accelerometer ODR to 416 Hz and range to 2g
   imu.writeRegister(LSM6DS3_ACC_GYRO_CTRL1_XL, 0x60);  // 0x60 = 416Hz, ±2g
   
+  // Enable gyroscope with 416 Hz ODR and 2000 dps
+  imu.writeRegister(LSM6DS3_ACC_GYRO_CTRL2_G, 0x60);  // 0x60 = 416Hz, 2000dps
+  
   // TAP_CFG (0x58): Enable X, Y, Z tap detection and LIR (Latched Interrupt)
   imu.writeRegister(LSM6DS3_ACC_GYRO_TAP_CFG1, 0x8F);  // 0x8F = Enable XYZ + LIR
   
@@ -151,6 +168,107 @@ void configureTapDetection() {
   Serial.println(" ms");
 }
 
+// Calibrate gyroscope to reduce drift
+void calibrateGyroscope() {
+  Serial.println("\nCalibrating gyroscope...");
+  Serial.println("Keep the device still for 2 seconds");
+  
+  // Visual indicator that calibration is starting
+  setLEDColor(false, false, true);  // Blue LED during calibration
+  
+  // Wait a moment for the device to settle
+  delay(500);
+  
+  // Variables for averaging
+  float sumGyroX = 0, sumGyroY = 0, sumGyroZ = 0;
+  const int numSamples = 100;
+  
+  // Collect samples
+  for (int i = 0; i < numSamples; i++) {
+    sumGyroX += imu.readFloatGyroX();
+    sumGyroY += imu.readFloatGyroY();
+    sumGyroZ += imu.readFloatGyroZ();
+    delay(20);  // Sample at 50Hz
+  }
+  
+  // Calculate average offsets
+  gyroXoffset = sumGyroX / numSamples;
+  gyroYoffset = sumGyroY / numSamples;
+  gyroZoffset = sumGyroZ / numSamples;
+  
+  // Mark as calibrated
+  gyroCalibrated = true;
+  
+  // Print calibration results
+  Serial.println("Gyroscope calibration complete");
+  Serial.print("X-axis offset: "); Serial.println(gyroXoffset, 4);
+  Serial.print("Y-axis offset: "); Serial.println(gyroYoffset, 4);
+  Serial.print("Z-axis offset: "); Serial.println(gyroZoffset, 4);
+  
+  // Visual indicator that calibration is complete
+  setLEDColor(true, false, false);  // Back to red (waiting state)
+}
+
+// Apply low-pass filter to sensor data
+float applyLowPassFilter(float currentValue, float prevValue) {
+  return FILTER_ALPHA * currentValue + (1.0 - FILTER_ALPHA) * prevValue;
+}
+
+// Print metadata about the recording session
+void printRecordingMetadata() {
+  Serial.println("\n------ RECORDING METADATA ------");
+  Serial.print("Recording duration: ");
+  Serial.print(RECORDING_DURATION);
+  Serial.println(" ms");
+  
+  Serial.print("Sample rate: ");
+  Serial.print(1000 / SAMPLE_RATE_MS);
+  Serial.println(" Hz");
+  
+  Serial.println("\nSensor configuration:");
+  Serial.println("- IMU: LSM6DS3 (Accelerometer + Gyroscope)");
+  
+  // Read configuration registers for metadata
+  uint8_t ctrl1, ctrl2;
+  imu.readRegister(&ctrl1, LSM6DS3_ACC_GYRO_CTRL1_XL);
+  imu.readRegister(&ctrl2, LSM6DS3_ACC_GYRO_CTRL2_G);
+  
+  // Determine accelerometer range
+  String accRange;
+  switch(ctrl1 & 0x0C) {
+    case 0x00: accRange = "±2g"; break;
+    case 0x04: accRange = "±4g"; break;
+    case 0x08: accRange = "±8g"; break;
+    case 0x0C: accRange = "±16g"; break;
+  }
+  
+  // Determine gyroscope range
+  String gyroRange;
+  switch(ctrl2 & 0x0C) {
+    case 0x00: gyroRange = "250 dps"; break;
+    case 0x04: gyroRange = "500 dps"; break;
+    case 0x08: gyroRange = "1000 dps"; break;
+    case 0x0C: gyroRange = "2000 dps"; break;
+  }
+  
+  Serial.print("- Accelerometer range: "); Serial.println(accRange);
+  Serial.print("- Gyroscope range: "); Serial.println(gyroRange);
+  Serial.print("- Low-pass filter coefficient: "); Serial.println(FILTER_ALPHA);
+  
+  // Add gyroscope calibration information
+  Serial.println("\nGyroscope Calibration:");
+  Serial.print("- X-axis offset: "); Serial.println(gyroXoffset, 4);
+  Serial.print("- Y-axis offset: "); Serial.println(gyroYoffset, 4);
+  Serial.print("- Z-axis offset: "); Serial.println(gyroZoffset, 4);
+  
+  Serial.println("\nSampling Considerations:");
+  Serial.println("* Sample rate: 50-100Hz is typically sufficient for human gestures");
+  Serial.println("* Duration: Balance between memory constraints and gesture complexity");
+  Serial.println("* Filtering: Simple low-pass filter applied to reduce noise");
+  
+  Serial.println("------------------------------");
+}
+
 // Handle double tap detection - now manages recording window
 void handleDoubleTap() {
   Serial.println("*** DOUBLE TAP DETECTED! ***");
@@ -161,11 +279,70 @@ void handleDoubleTap() {
   // Start recording window
   isRecording = true;
   recordingStartTime = millis();
+  sampleCount = 0;
+  
+  // Print metadata and CSV header for the data
+  printRecordingMetadata();
+  Serial.println("\nRECORDING STARTED - 4 second window");
+  Serial.println("timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z");
   
   // Set LED to green during recording
   setLEDColor(false, true, false);
   
-  Serial.println("RECORDING STARTED - 2 second window");
+  // Reset filter values
+  prevAccX = 0; prevAccY = 0; prevAccZ = 0;
+  prevGyroX = 0; prevGyroY = 0; prevGyroZ = 0;
+}
+
+// Read and print sensor data
+void recordSensorData() {
+  // Get current time
+  unsigned long currentTime = millis();
+  unsigned long elapsedTime = currentTime - recordingStartTime;
+  
+  // Get IMU data
+  float accX = imu.readFloatAccelX();
+  float accY = imu.readFloatAccelY();
+  float accZ = imu.readFloatAccelZ();
+  
+  // Get gyroscope data and apply calibration offset
+  float gyroX = imu.readFloatGyroX() - gyroXoffset;
+  float gyroY = imu.readFloatGyroY() - gyroYoffset;
+  float gyroZ = imu.readFloatGyroZ() - gyroZoffset;
+  
+  // Apply low-pass filter
+  accX = applyLowPassFilter(accX, prevAccX);
+  accY = applyLowPassFilter(accY, prevAccY);
+  accZ = applyLowPassFilter(accZ, prevAccZ);
+  
+  gyroX = applyLowPassFilter(gyroX, prevGyroX);
+  gyroY = applyLowPassFilter(gyroY, prevGyroY);
+  gyroZ = applyLowPassFilter(gyroZ, prevGyroZ);
+  
+  // Store current values for next filter iteration
+  prevAccX = accX; prevAccY = accY; prevAccZ = accZ;
+  prevGyroX = gyroX; prevGyroY = gyroY; prevGyroZ = gyroZ;
+  
+  // Print in CSV format: timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z
+  Serial.print(elapsedTime);
+  Serial.print(",");
+  Serial.print(accX, 4);  // 4 decimal places
+  Serial.print(",");
+  Serial.print(accY, 4);
+  Serial.print(",");
+  Serial.print(accZ, 4);
+  Serial.print(",");
+  Serial.print(gyroX, 4);
+  Serial.print(",");
+  Serial.print(gyroY, 4);
+  Serial.print(",");
+  Serial.println(gyroZ, 4);
+  
+  // Increment sample count
+  sampleCount++;
+  
+  // Update last sample time
+  lastSampleTime = currentTime;
 }
 
 void setup() {
@@ -195,27 +372,46 @@ void setup() {
   Serial.println("LSM6DS3 initialized successfully");
   configureTapDetection();
   
-  Serial.println("Double tap to start a 2-second gesture recording window");
+  // Calibrate gyroscope
+  calibrateGyroscope();
+  
+  Serial.println("Double tap to start a 4-second gesture recording window");
+  Serial.println("During recording, IMU data will be printed to Serial");
   
   // Set initial LED color to RED (waiting mode)
   setLEDColor(true, false, false);
 }
 
 void loop() {
-  // Check if recording window has ended
-  if (isRecording && (millis() - recordingStartTime >= RECORDING_DURATION)) {
-    // Recording window ended
-    isRecording = false;
-    Serial.println("RECORDING FINISHED");
+  // Check if we should record sensor data during recording window
+  if (isRecording) {
+    unsigned long currentTime = millis();
     
-    // Return to waiting state (red LED)
-    setLEDColor(true, false, false);
+    // Sample at our defined rate and print the data
+    if (currentTime - lastSampleTime >= SAMPLE_RATE_MS) {
+      recordSensorData();
+    }
     
-    // Re-enable tap detection
-    ignoreTaps = false;
+    // Check if recording window has ended
+    if (currentTime - recordingStartTime >= RECORDING_DURATION) {
+      // Recording window ended
+      isRecording = false;
+      Serial.print("\nRECORDING FINISHED - ");
+      Serial.print(sampleCount);
+      Serial.println(" samples collected");
+      
+      // Return to waiting state (red LED)
+      setLEDColor(true, false, false);
+      
+      // Re-enable tap detection
+      ignoreTaps = false;
+    }
+    
+    // During recording, we only focus on collecting data, not detecting taps
+    return;
   }
   
-  // Skip tap detection if we're in recording mode or animation
+  // Skip tap detection if we're in another mode that should ignore taps
   if (ignoreTaps) {
     delay(10);
     return;
@@ -265,5 +461,5 @@ void loop() {
   }
   
   // Small delay to prevent flooding the serial monitor
-  delay(20);
+  delay(10);
 }

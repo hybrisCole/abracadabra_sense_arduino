@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture Visualizer</title>
+    <!-- Load Three.js from a reliable CDN -->
+    <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Add Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        border: "hsl(var(--border))",
+                        input: "hsl(var(--input))",
+                        ring: "hsl(var(--ring))",
+                        background: "hsl(var(--background))",
+                        foreground: "hsl(var(--foreground))",
+                        primary: {
+                            DEFAULT: "hsl(var(--primary))",
+                            foreground: "hsl(var(--primary-foreground))",
+                        },
+                        secondary: {
+                            DEFAULT: "hsl(var(--secondary))",
+                            foreground: "hsl(var(--secondary-foreground))",
+                        },
+                        destructive: {
+                            DEFAULT: "hsl(var(--destructive))",
+                            foreground: "hsl(var(--destructive-foreground))",
+                        },
+                        muted: {
+                            DEFAULT: "hsl(var(--muted))",
+                            foreground: "hsl(var(--muted-foreground))",
+                        },
+                        accent: {
+                            DEFAULT: "hsl(var(--accent))",
+                            foreground: "hsl(var(--accent-foreground))",
+                        },
+                        card: {
+                            DEFAULT: "hsl(var(--card))",
+                            foreground: "hsl(var(--card-foreground))",
+                        },
+                    },
+                    borderRadius: {
+                        lg: "var(--radius)",
+                        md: "calc(var(--radius) - 2px)",
+                        sm: "calc(var(--radius) - 4px)",
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        :root {
+            --background: 0 0% 100%;
+            --foreground: 222.2 84% 4.9%;
+            --card: 0 0% 100%;
+            --card-foreground: 222.2 84% 4.9%;
+            --popover: 0 0% 100%;
+            --popover-foreground: 222.2 84% 4.9%;
+            --primary: 221.2 83.2% 53.3%;
+            --primary-foreground: 210 40% 98%;
+            --secondary: 210 40% 96.1%;
+            --secondary-foreground: 222.2 47.4% 11.2%;
+            --muted: 210 40% 96.1%;
+            --muted-foreground: 215.4 16.3% 46.9%;
+            --accent: 210 40% 96.1%;
+            --accent-foreground: 222.2 47.4% 11.2%;
+            --destructive: 0 84.2% 60.2%;
+            --destructive-foreground: 210 40% 98%;
+            --border: 214.3 31.8% 91.4%;
+            --input: 214.3 31.8% 91.4%;
+            --ring: 221.2 83.2% 53.3%;
+            --radius: 0.5rem;
+        }
+
+        .dark {
+            --background: 222.2 84% 4.9%;
+            --foreground: 210 40% 98%;
+            --card: 222.2 84% 4.9%;
+            --card-foreground: 210 40% 98%;
+            --popover: 222.2 84% 4.9%;
+            --popover-foreground: 210 40% 98%;
+            --primary: 217.2 91.2% 59.8%;
+            --primary-foreground: 222.2 47.4% 11.2%;
+            --secondary: 217.2 32.6% 17.5%;
+            --secondary-foreground: 210 40% 98%;
+            --muted: 217.2 32.6% 17.5%;
+            --muted-foreground: 215 20.2% 65.1%;
+            --accent: 217.2 32.6% 17.5%;
+            --accent-foreground: 210 40% 98%;
+            --destructive: 0 62.8% 30.6%;
+            --destructive-foreground: 210 40% 98%;
+            --border: 217.2 32.6% 17.5%;
+            --input: 217.2 32.6% 17.5%;
+            --ring: 224.3 76.3% 48%;
+        }
+
+        #renderCanvas {
+            width: 100%;
+            height: 500px;
+            display: block;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 30px;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 30px;
+        }
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 22px;
+            width: 22px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .toggle-slider {
+            background-color: #2196F3;
+        }
+        input:checked + .toggle-slider:before {
+            transform: translateX(30px);
+        }
+        .toggle-icon {
+            position: absolute;
+            top: 6px;
+            font-size: 14px;
+        }
+        .toggle-icon.sun {
+            left: 9px;
+        }
+        .toggle-icon.moon {
+            right: 9px;
+            color: #fff;
+        }
+    </style>
+</head>
+<body class="bg-background text-foreground dark">
+    <div class="max-w-6xl mx-auto px-4 py-8">
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold text-center">IMU Gesture Visualizer</h1>
+            
+            <!-- Dark mode toggle -->
+            <div class="flex items-center space-x-2 opacity-50">
+                <span class="text-sm font-medium">Night Mode Enabled</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="darkModeToggle" checked disabled>
+                    <span class="toggle-slider">
+                        <span class="toggle-icon moon">🌙</span>
+                    </span>
+                </label>
+            </div>
+        </div>
+
+        <div class="bg-card rounded-lg shadow-md p-6 mb-6 border border-border">
+            <div class="bg-muted text-muted-foreground p-4 rounded-md mb-4 text-sm">
+                <p class="font-semibold mb-2">Instructions:</p>
+                <ol class="space-y-1 list-decimal pl-5">
+                    <li>Paste your CSV data below. Format should be: <code class="bg-secondary px-1 rounded">timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z</code></li>
+                    <li>Include metadata section from the Arduino output for enhanced visualization</li>
+                    <li>Click "Visualize" to see the 3D animation of your gesture</li>
+                    <li>Use controls to play, pause, or adjust playback speed</li>
+                    <li>Drag with mouse to rotate the view, scroll to zoom</li>
+                </ol>
+            </div>
+            <textarea id="csvInput" placeholder="Paste your CSV data here, including the metadata section..." class="w-full h-36 p-3 border border-input rounded-md bg-background text-foreground font-mono text-sm resize-y focus:ring-2 focus:ring-ring focus:outline-none"></textarea>
+            <div class="flex space-x-3 mt-4">
+                <button id="visualizeBtn" class="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors">Visualize</button>
+                <button id="clearBtn" class="bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors">Clear</button>
+                <button id="sampleBtn" class="bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors">Load Sample Data</button>
+            </div>
+        </div>
+
+        <!-- Visualization settings section -->
+        <div class="bg-card rounded-lg shadow-md p-6 mb-6 border border-border">
+            <h2 class="text-xl font-bold mb-4">Visualization Settings</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-muted/40 rounded-md p-4 border border-border">
+                    <h3 class="font-semibold text-sm mb-3">Initial Position</h3>
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center">
+                            <label for="initialX" class="text-sm">X Position:</label>
+                            <input type="number" id="initialX" value="0" step="0.5" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label for="initialY" class="text-sm">Y Position:</label>
+                            <input type="number" id="initialY" value="0" step="0.5" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label for="initialZ" class="text-sm">Z Position:</label>
+                            <input type="number" id="initialZ" value="0" step="0.5" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-muted/40 rounded-md p-4 border border-border">
+                    <h3 class="font-semibold text-sm mb-3">Initial Rotation (degrees)</h3>
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center">
+                            <label for="initialRotX" class="text-sm">X Rotation:</label>
+                            <input type="number" id="initialRotX" value="0" step="5" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label for="initialRotY" class="text-sm">Y Rotation:</label>
+                            <input type="number" id="initialRotY" value="0" step="5" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label for="initialRotZ" class="text-sm">Z Rotation:</label>
+                            <input type="number" id="initialRotZ" value="0" step="5" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-muted/40 rounded-md p-4 border border-border">
+                    <h3 class="font-semibold text-sm mb-3">Scaling Factors</h3>
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center">
+                            <label for="accScale" class="text-sm">Acceleration Scale:</label>
+                            <input type="number" id="accScale" value="0.5" step="0.1" min="0.1" max="10" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label for="gyroScale" class="text-sm">Gyroscope Scale:</label>
+                            <input type="number" id="gyroScale" value="0.01" step="0.005" min="0.001" max="1" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                        </div>
+                        <div class="mt-3 pt-3 border-t border-border">
+                            <div class="flex justify-between items-center">
+                                <label for="enableAcc" class="text-sm">Enable Accelerometer:</label>
+                                <div class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="enableAcc" class="sr-only peer" checked>
+                                    <div class="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                                </div>
+                            </div>
+                            <div class="flex justify-between items-center mt-2">
+                                <label for="enableGyro" class="text-sm">Enable Gyroscope:</label>
+                                <div class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="enableGyro" class="sr-only peer" checked>
+                                    <div class="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-muted/40 rounded-md p-4 border border-border">
+                    <h3 class="font-semibold text-sm mb-3">Trail Visualization</h3>
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center">
+                            <label for="trailEnabled" class="text-sm">Show Motion Trail:</label>
+                            <div class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="trailEnabled" class="sr-only peer">
+                                <div class="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label for="trailLength" class="text-sm">Trail Length:</label>
+                            <input type="number" id="trailLength" value="20" min="5" max="100" step="5" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Metadata display section -->
+        <div id="metadataSection" class="bg-card rounded-lg shadow-md p-6 mb-6 border border-border border-l-primary hidden">
+            <h2 class="text-xl font-bold mb-4">Recording Metadata</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="flex">
+                    <span class="font-semibold mr-2">Recording Duration:</span>
+                    <span id="metaDuration" class="text-muted-foreground">--</span>
+                </div>
+                <div class="flex">
+                    <span class="font-semibold mr-2">Sample Rate:</span>
+                    <span id="metaSampleRate" class="text-muted-foreground">--</span>
+                </div>
+                <div class="flex">
+                    <span class="font-semibold mr-2">IMU Model:</span>
+                    <span id="metaImuModel" class="text-muted-foreground">--</span>
+                </div>
+                <div class="flex">
+                    <span class="font-semibold mr-2">Accelerometer Range:</span>
+                    <span id="metaAccRange" class="text-muted-foreground">--</span>
+                </div>
+                <div class="flex">
+                    <span class="font-semibold mr-2">Gyroscope Range:</span>
+                    <span id="metaGyroRange" class="text-muted-foreground">--</span>
+                </div>
+                <div class="flex">
+                    <span class="font-semibold mr-2">Filter Setting:</span>
+                    <span id="metaFilter" class="text-muted-foreground">--</span>
+                </div>
+            </div>
+            <div class="mt-4">
+                <h3 class="font-semibold mb-2">Sampling Considerations</h3>
+                <div id="metaSamplingNotes" class="text-muted-foreground">--</div>
+            </div>
+        </div>
+
+        <div class="bg-card rounded-lg shadow-md p-6 border border-border">
+            <div id="renderCanvas" class="rounded-md bg-muted/30 overflow-hidden"></div>
+            <div class="flex justify-center space-x-2 mt-4">
+                <button id="playBtn" class="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors">Play</button>
+                <button id="pauseBtn" class="bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors">Pause</button>
+                <button id="resetBtn" class="bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors">Reset</button>
+                <div class="flex items-center ml-2">
+                    <label for="speed" class="text-sm mr-2">Speed:</label>
+                    <input type="number" id="speed" value="1.0" step="0.1" min="0.1" max="5.0" class="w-16 p-1 text-sm border border-input rounded bg-background">
+                </div>
+            </div>
+            <div id="status" class="text-center mt-4 font-medium">No data loaded</div>
+        </div>
+    </div>
+
+    <script>
+        // Check if OrbitControls was loaded properly
+        if (typeof THREE.OrbitControls === 'undefined') {
+            console.error('THREE.OrbitControls not loaded! Falling back to basic controls.');
+            // Create a simple fallback in case OrbitControls isn't available
+            THREE.OrbitControls = function(camera, domElement) {
+                this.update = function() {};
+                this.enableDamping = false;
+                this.dampingFactor = 0;
+                console.warn('Using dummy OrbitControls');
+            };
+        }
+
+        // Global variables
+        let scene, camera, renderer, device, controls;
+        let imuData = [];
+        let metadata = {
+            duration: '',
+            sampleRate: '',
+            imuModel: '',
+            accRange: '',
+            gyroRange: '',
+            filter: '',
+            samplingNotes: []
+        };
+        let animationState = {
+            playing: false,
+            frame: 0,
+            speed: 1.0,
+            lastTime: 0
+        };
+        let motionTrail = [];
+
+        // Initialize 3D scene
+        function initScene() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a); // Dark background by default
+            
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 5;
+            
+            // Create renderer
+            const canvas = document.querySelector('#renderCanvas');
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(canvas.offsetWidth, canvas.offsetHeight);
+            canvas.innerHTML = '';
+            canvas.appendChild(renderer.domElement);
+            
+            // Create lights
+            const ambientLight = new THREE.AmbientLight(0x404040);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(1, 1, 1);
+            scene.add(directionalLight);
+            
+            // Create grid and axes helpers
+            const gridHelper = new THREE.GridHelper(10, 10);
+            scene.add(gridHelper);
+            
+            const axesHelper = new THREE.AxesHelper(3);
+            scene.add(axesHelper);
+            
+            // Create device representation
+            createDevice();
+            
+            // Add orbit controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.25;
+            
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                camera.aspect = canvas.offsetWidth / canvas.offsetHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(canvas.offsetWidth, canvas.offsetHeight);
+            });
+            
+            // Start animation loop
+            animate();
+        }
+        
+        // Create device geometry
+        function createDevice() {
+            // Create a group to hold the device parts
+            device = new THREE.Group();
+            
+            // Create main body - the XIAO board
+            const bodyGeometry = new THREE.BoxGeometry(1, 0.2, 1.5);
+            const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0x2c3e50 });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            device.add(body);
+            
+            // Add directional markers
+            // Forward arrow (X axis - red)
+            const arrowX = new THREE.Mesh(
+                new THREE.ConeGeometry(0.1, 0.4, 8),
+                new THREE.MeshPhongMaterial({ color: 0xff0000 })
+            );
+            arrowX.position.set(0.7, 0.1, 0);
+            arrowX.rotation.z = -Math.PI / 2;
+            device.add(arrowX);
+            
+            // Right arrow (Y axis - green)
+            const arrowY = new THREE.Mesh(
+                new THREE.ConeGeometry(0.1, 0.4, 8),
+                new THREE.MeshPhongMaterial({ color: 0x00ff00 })
+            );
+            arrowY.position.set(0, 0.3, 0);
+            device.add(arrowY);
+            
+            // Up arrow (Z axis - blue)
+            const arrowZ = new THREE.Mesh(
+                new THREE.ConeGeometry(0.1, 0.4, 8),
+                new THREE.MeshPhongMaterial({ color: 0x0000ff })
+            );
+            arrowZ.position.set(0, 0.1, 0.8);
+            arrowZ.rotation.x = Math.PI / 2;
+            device.add(arrowZ);
+            
+            // Add device to scene
+            scene.add(device);
+        }
+        
+        // Animation loop
+        function animate(time) {
+            requestAnimationFrame(animate);
+            
+            if (controls && controls.update) {
+                controls.update();
+            }
+            
+            if (animationState.playing && imuData.length > 0) {
+                // Calculate time delta
+                const delta = time - (animationState.lastTime || time);
+                animationState.lastTime = time;
+                
+                // Update frame based on playback speed
+                animationState.frame += (delta / 20) * animationState.speed;
+                
+                // If reached the end, loop back to beginning
+                if (Math.floor(animationState.frame) >= imuData.length) {
+                    animationState.frame = 0;
+                }
+                
+                // Apply current frame data to device
+                applyFrameData(Math.floor(animationState.frame));
+                
+                // Update status
+                updateStatus();
+            }
+            
+            renderer.render(scene, camera);
+        }
+        
+        // Update motion trail
+        function updateMotionTrail(frameIndex) {
+            const trailLength = parseInt(document.getElementById('trailLength').value) || 20;
+            const currentTime = performance.now();
+            
+            // Add current position to trail with timestamp
+            const position = device.position.clone();
+            motionTrail.push({
+                position: position,
+                timestamp: currentTime
+            });
+            
+            // Remove old positions if trail is too long
+            if (motionTrail.length > 100) { // Keep more points for fade-out effect
+                motionTrail = motionTrail.slice(motionTrail.length - 100);
+            }
+            
+            // Remove any existing trail line
+            const existingLine = scene.getObjectByName("motion_trail_line");
+            if (existingLine) {
+                scene.remove(existingLine);
+            }
+            
+            const glowLine = scene.getObjectByName("motion_trail_glow");
+            if (glowLine) {
+                scene.remove(glowLine);
+            }
+            
+            // Create neon line from points
+            if (motionTrail.length > 1) {
+                // Filter to only include points within the desired trail length
+                // and create fade effect based on point age
+                const fadeTime = 10000; // Time in ms for points to fade out completely
+                
+                // Organize points by time segments for better color management
+                const points = [];
+                const colors = [];
+                
+                motionTrail.forEach(point => {
+                    // Calculate age of this point
+                    const age = currentTime - point.timestamp;
+                    // Skip very old points
+                    if (age > fadeTime) return;
+                    
+                    // Add point to array
+                    points.push(point.position);
+                    
+                    // Calculate opacity based on age (newer points are more opaque)
+                    const opacity = Math.max(0, 1 - (age / fadeTime));
+                    
+                    // Create color with fading effect - cyan that fades out
+                    colors.push(new THREE.Color(0, 1 * opacity, 1 * opacity));
+                });
+                
+                if (points.length < 2) return; // Need at least 2 points to draw a line
+                
+                // Create line geometry with colors
+                const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+                
+                // Add colors to geometry
+                const colorAttrib = new Float32Array(colors.length * 3);
+                colors.forEach((color, i) => {
+                    colorAttrib[i * 3] = color.r;
+                    colorAttrib[i * 3 + 1] = color.g;
+                    colorAttrib[i * 3 + 2] = color.b;
+                });
+                lineGeometry.setAttribute('color', new THREE.BufferAttribute(colorAttrib, 3));
+                
+                // Create neon line material with vertex colors
+                const lineMaterial = new THREE.LineBasicMaterial({
+                    vertexColors: true,
+                    linewidth: 3,
+                    transparent: true,
+                    opacity: 0.9
+                });
+                
+                // Create line mesh
+                const line = new THREE.Line(lineGeometry, lineMaterial);
+                line.name = "motion_trail_line";
+                scene.add(line);
+                
+                // Add glow effect with wider line
+                const glowMaterial = new THREE.LineBasicMaterial({
+                    vertexColors: true,
+                    linewidth: 6,
+                    transparent: true,
+                    opacity: 0.3
+                });
+                
+                const glowLine = new THREE.Line(lineGeometry, glowMaterial);
+                glowLine.name = "motion_trail_glow";
+                scene.add(glowLine);
+            }
+        }
+        
+        // Clear motion trail
+        function clearMotionTrail() {
+            // Remove trail line from scene
+            const trailLine = scene.getObjectByName("motion_trail_line");
+            if (trailLine) scene.remove(trailLine);
+            
+            const glowLine = scene.getObjectByName("motion_trail_glow");
+            if (glowLine) scene.remove(glowLine);
+            
+            // Clear the array
+            motionTrail = [];
+        }
+        
+        // Apply IMU data to device
+        function applyFrameData(frameIndex) {
+            if (frameIndex < 0 || frameIndex >= imuData.length) return;
+            
+            const frame = imuData[frameIndex];
+            
+            // Get current visualization settings
+            const initialX = parseFloat(document.getElementById('initialX').value) || 0;
+            const initialY = parseFloat(document.getElementById('initialY').value) || 0;
+            const initialZ = parseFloat(document.getElementById('initialZ').value) || 0;
+            
+            const initialRotX = (parseFloat(document.getElementById('initialRotX').value) || 0) * Math.PI / 180;
+            const initialRotY = (parseFloat(document.getElementById('initialRotY').value) || 0) * Math.PI / 180;
+            const initialRotZ = (parseFloat(document.getElementById('initialRotZ').value) || 0) * Math.PI / 180;
+            
+            const accScale = parseFloat(document.getElementById('accScale').value) || 0.5;
+            const gyroScale = parseFloat(document.getElementById('gyroScale').value) || 0.01;
+            
+            // Check which sensors are enabled
+            const enableAcc = document.getElementById('enableAcc').checked;
+            const enableGyro = document.getElementById('enableGyro').checked;
+            
+            // Reset device transformation to initial settings
+            device.position.set(initialX, initialY, initialZ);
+            device.rotation.set(initialRotX, initialRotY, initialRotZ);
+            
+            // Apply rotation from gyroscope data (cumulative from start)
+            if (enableGyro) {
+                // This is a simplification - real orientation would use sensor fusion
+                let rotX = initialRotX, rotY = initialRotY, rotZ = initialRotZ;
+                
+                // Sum up all rotations up to current frame
+                for (let i = 0; i <= frameIndex; i++) {
+                    rotX += imuData[i].gyroX * gyroScale;
+                    rotY += imuData[i].gyroY * gyroScale;
+                    rotZ += imuData[i].gyroZ * gyroScale;
+                }
+                
+                // Apply rotations in XYZ order
+                device.rotation.x = rotX;
+                device.rotation.y = rotY;
+                device.rotation.z = rotZ;
+            }
+            
+            // Apply position offset based on current acceleration
+            if (enableAcc) {
+                device.position.x = initialX + frame.accX * accScale;
+                device.position.y = initialY + frame.accY * accScale;
+                device.position.z = initialZ + frame.accZ * accScale;
+            }
+            
+            // Handle motion trail if enabled
+            const trailEnabled = document.getElementById('trailEnabled').checked;
+            if (trailEnabled && frameIndex > 0) {
+                updateMotionTrail(frameIndex);
+            }
+        }
+        
+        // Parse metadata from input text
+        function parseMetadata(inputText) {
+            // Reset metadata
+            metadata = {
+                duration: '',
+                sampleRate: '',
+                imuModel: '',
+                accRange: '',
+                gyroRange: '',
+                filter: '',
+                samplingNotes: []
+            };
+            
+            // Look for the metadata section
+            if (inputText.includes('------ RECORDING METADATA ------')) {
+                const metadataSection = inputText.split('------ RECORDING METADATA ------')[1].split('------------------------------')[0];
+                const lines = metadataSection.split('\n');
+                
+                // Extract metadata values
+                lines.forEach(line => {
+                    line = line.trim();
+                    if (line.startsWith('Recording duration:')) {
+                        metadata.duration = line.split('Recording duration:')[1].trim();
+                    }
+                    else if (line.startsWith('Sample rate:')) {
+                        metadata.sampleRate = line.split('Sample rate:')[1].trim();
+                    }
+                    else if (line.startsWith('- IMU:')) {
+                        metadata.imuModel = line.split('- IMU:')[1].trim();
+                    }
+                    else if (line.startsWith('- Accelerometer range:')) {
+                        metadata.accRange = line.split('- Accelerometer range:')[1].trim();
+                    }
+                    else if (line.startsWith('- Gyroscope range:')) {
+                        metadata.gyroRange = line.split('- Gyroscope range:')[1].trim();
+                    }
+                    else if (line.startsWith('- Low-pass filter coefficient:')) {
+                        metadata.filter = line.split('- Low-pass filter coefficient:')[1].trim();
+                    }
+                    else if (line.startsWith('*')) {
+                        metadata.samplingNotes.push(line.trim());
+                    }
+                });
+                
+                // Display metadata in the UI
+                updateMetadataDisplay();
+                
+                // Show metadata section
+                document.getElementById('metadataSection').classList.remove('hidden');
+                
+                return true;
+            }
+            
+            return false;
+        }
+        
+        // Update metadata display
+        function updateMetadataDisplay() {
+            document.getElementById('metaDuration').textContent = metadata.duration || '--';
+            document.getElementById('metaSampleRate').textContent = metadata.sampleRate || '--';
+            document.getElementById('metaImuModel').textContent = metadata.imuModel || '--';
+            document.getElementById('metaAccRange').textContent = metadata.accRange || '--';
+            document.getElementById('metaGyroRange').textContent = metadata.gyroRange || '--';
+            document.getElementById('metaFilter').textContent = metadata.filter || '--';
+            
+            // Display sampling notes
+            if (metadata.samplingNotes.length > 0) {
+                document.getElementById('metaSamplingNotes').innerHTML = metadata.samplingNotes.join('<br>');
+            } else {
+                document.getElementById('metaSamplingNotes').textContent = '--';
+            }
+        }
+        
+        // Parse CSV data
+        function parseCSVData(csvText) {
+            // First try to extract metadata
+            parseMetadata(csvText);
+            
+            // Now parse the actual CSV data
+            const csvSection = csvText.includes('timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z') 
+                ? csvText.split('timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z')[1]
+                : csvText;
+                
+            const lines = csvSection.trim().split('\n');
+            
+            imuData = [];
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line || line.startsWith('*') || line.startsWith('-')) continue;
+                
+                const values = line.split(',');
+                if (values.length >= 7) {
+                    imuData.push({
+                        timestamp: parseFloat(values[0]),
+                        accX: parseFloat(values[1]),
+                        accY: parseFloat(values[2]),
+                        accZ: parseFloat(values[3]),
+                        gyroX: parseFloat(values[4]),
+                        gyroY: parseFloat(values[5]),
+                        gyroZ: parseFloat(values[6])
+                    });
+                }
+            }
+            
+            animationState.frame = 0;
+            document.getElementById('status').textContent = `Loaded ${imuData.length} frames of data`;
+            
+            return imuData.length > 0;
+        }
+        
+        // Update status display
+        function updateStatus() {
+            if (imuData.length === 0) {
+                document.getElementById('status').textContent = 'No data loaded';
+                return;
+            }
+            
+            const frameIndex = Math.floor(animationState.frame);
+            const frame = imuData[frameIndex];
+            
+            const enableAcc = document.getElementById('enableAcc').checked;
+            const enableGyro = document.getElementById('enableGyro').checked;
+            
+            let statusText = `Frame: ${frameIndex + 1}/${imuData.length} | Time: ${frame.timestamp}ms`;
+            
+            if (enableAcc) {
+                statusText += ` | Acc: (${frame.accX.toFixed(2)}, ${frame.accY.toFixed(2)}, ${frame.accZ.toFixed(2)})`;
+            } else {
+                statusText += ' | Acc: [muted]';
+            }
+            
+            if (enableGyro) {
+                statusText += ` | Gyro: (${frame.gyroX.toFixed(2)}, ${frame.gyroY.toFixed(2)}, ${frame.gyroZ.toFixed(2)})`;
+            } else {
+                statusText += ' | Gyro: [muted]';
+            }
+            
+            document.getElementById('status').textContent = statusText;
+        }
+        
+        // Reset all data and UI
+        function resetData() {
+            imuData = [];
+            metadata = {
+                duration: '',
+                sampleRate: '',
+                imuModel: '',
+                accRange: '',
+                gyroRange: '',
+                filter: '',
+                samplingNotes: []
+            };
+            animationState.frame = 0;
+            animationState.playing = false;
+            
+            document.getElementById('metadataSection').classList.add('hidden');
+            document.getElementById('status').textContent = 'Data cleared';
+            
+            // Reset device position and rotation
+            if (device) {
+                device.position.set(0, 0, 0);
+                device.rotation.set(0, 0, 0);
+            }
+            
+            // Clear motion trail
+            clearMotionTrail();
+        }
+        
+        // Add event listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize 3D scene
+            initScene();
+            
+            // Add button event listeners
+            document.getElementById('visualizeBtn').addEventListener('click', () => {
+                const csvText = document.getElementById('csvInput').value;
+                if (parseCSVData(csvText)) {
+                    animationState.playing = false;
+                    clearMotionTrail();
+                    applyFrameData(0);
+                    updateStatus();
+                } else {
+                    document.getElementById('status').textContent = 'Error: Invalid data format';
+                }
+            });
+            
+            document.getElementById('clearBtn').addEventListener('click', () => {
+                document.getElementById('csvInput').value = '';
+                resetData();
+            });
+            
+            document.getElementById('playBtn').addEventListener('click', () => {
+                if (imuData.length > 0) {
+                    animationState.playing = true;
+                    animationState.lastTime = performance.now();
+                }
+            });
+            
+            document.getElementById('pauseBtn').addEventListener('click', () => {
+                animationState.playing = false;
+            });
+            
+            document.getElementById('resetBtn').addEventListener('click', () => {
+                animationState.frame = 0;
+                animationState.playing = false;
+                clearMotionTrail();
+                if (imuData.length > 0) {
+                    applyFrameData(0);
+                    updateStatus();
+                }
+            });
+            
+            document.getElementById('speed').addEventListener('change', (e) => {
+                animationState.speed = parseFloat(e.target.value) || 1.0;
+            });
+            
+            document.getElementById('sampleBtn').addEventListener('click', () => {
+                // Load sample data with metadata
+                const sampleData = 
+`------ RECORDING METADATA ------
+Recording duration: 4000 ms
+Sample rate: 50 Hz
+
+Sensor configuration:
+- IMU: LSM6DS3 (Accelerometer + Gyroscope)
+- Accelerometer range: ±2g
+- Gyroscope range: 2000 dps
+- Low-pass filter coefficient: 0.2
+
+Sampling Considerations:
+* Sample rate: 50-100Hz is typically sufficient for human gestures
+* Duration: Balance between memory constraints and gesture complexity
+* Filtering: Simple low-pass filter applied to reduce noise
+------------------------------
+
+RECORDING STARTED - 4 second window
+timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z
+0,0.0000,0.0000,1.0000,0.0000,0.0000,0.0000
+20,0.1000,0.0200,0.9900,1.0000,0.0000,0.0000
+40,0.2000,0.0400,0.9800,2.0000,0.0000,0.0000
+60,0.3000,0.0600,0.9500,3.0000,0.0000,0.0000
+80,0.4000,0.0800,0.9200,4.0000,0.0000,0.0000
+100,0.5000,0.1000,0.8800,5.0000,0.0000,0.0000
+120,0.4000,0.1200,0.9000,4.0000,1.0000,0.0000
+140,0.3000,0.1400,0.9200,3.0000,2.0000,0.0000
+160,0.2000,0.1600,0.9400,2.0000,3.0000,0.0000
+180,0.1000,0.1800,0.9600,1.0000,4.0000,0.0000
+200,0.0000,0.2000,0.9800,0.0000,5.0000,0.0000
+220,-0.1000,0.1800,0.9800,-1.0000,4.0000,0.0000
+240,-0.2000,0.1600,0.9600,-2.0000,3.0000,0.0000
+260,-0.3000,0.1400,0.9400,-3.0000,2.0000,0.0000
+280,-0.4000,0.1200,0.9200,-4.0000,1.0000,0.0000
+300,-0.5000,0.1000,0.8800,-5.0000,0.0000,0.0000
+320,-0.4000,0.0800,0.9000,-4.0000,0.0000,1.0000
+340,-0.3000,0.0600,0.9200,-3.0000,0.0000,2.0000
+360,-0.2000,0.0400,0.9400,-2.0000,0.0000,3.0000
+380,-0.1000,0.0200,0.9600,-1.0000,0.0000,4.0000
+400,0.0000,0.0000,0.9800,0.0000,0.0000,5.0000`;
+                
+                document.getElementById('csvInput').value = sampleData;
+                parseCSVData(sampleData);
+                clearMotionTrail();
+                applyFrameData(0);
+                updateStatus();
+            });
+            
+            // Add dark mode toggle functionality
+            document.getElementById('darkModeToggle').addEventListener('change', function() {
+                // Force dark mode to stay enabled
+                document.documentElement.classList.add('dark');
+                this.checked = true;
+                scene.background = new THREE.Color(0x1a1a1a);
+            });
+        });
+    </script>
+</body>
+</html> 
