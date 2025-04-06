@@ -157,6 +157,79 @@
             right: 9px;
             color: #fff;
         }
+
+        /* Multi-View Mode Styles */
+        .gesture-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        
+        .gesture-card {
+            flex: 1 1 300px;
+            background-color: hsl(var(--card));
+            border: 1px solid hsl(var(--border));
+            border-radius: var(--radius);
+            padding: 16px;
+            position: relative;
+        }
+        
+        .gesture-canvas {
+            width: 100%;
+            height: 300px;
+            margin-bottom: 8px;
+        }
+        
+        .gesture-info {
+            font-size: 0.875rem;
+            color: hsl(var(--muted-foreground));
+        }
+        
+        .gesture-controls {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+        }
+        
+        .gesture-delete {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: hsl(var(--destructive));
+            color: hsl(var(--destructive-foreground));
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 1;
+        }
+        
+        .gesture-selector {
+            margin-top: 16px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        
+        .gesture-tab {
+            padding: 6px 12px;
+            background-color: hsl(var(--secondary));
+            color: hsl(var(--secondary-foreground));
+            border-radius: var(--radius);
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .gesture-tab:hover, .gesture-tab.active {
+            background-color: hsl(var(--primary));
+            color: hsl(var(--primary-foreground));
+        }
     </style>
 </head>
 <body class="bg-background text-foreground dark">
@@ -313,6 +386,25 @@
             <div class="mt-4">
                 <h3 class="font-semibold mb-2">Sampling Considerations</h3>
                 <div id="metaSamplingNotes" class="text-muted-foreground">--</div>
+            </div>
+        </div>
+
+        <div class="bg-card rounded-lg shadow-md p-6 mb-6 border border-border">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold">Visualization Controls</h2>
+            </div>
+            
+            <div class="mt-4 pt-4 border-t border-border">
+                <div class="flex flex-col space-y-4">
+                    <!-- Add timeline slider -->
+                    <div class="w-full">
+                        <div class="flex justify-between items-center mb-2">
+                            <label for="timelineSlider" class="text-sm font-medium">Timeline Position:</label>
+                            <span id="frameIndicator" class="text-sm bg-primary/20 text-primary-foreground px-2 py-1 rounded-md">0/0</span>
+                        </div>
+                        <input type="range" id="timelineSlider" min="0" max="100" value="0" step="1" class="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary">
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -481,11 +573,31 @@
                 // Apply current frame data to device
                 applyFrameData(Math.floor(animationState.frame));
                 
+                // Update timeline slider and frame counter
+                updateFrameIndicator();
+                
                 // Update status
                 updateStatus();
             }
             
             renderer.render(scene, camera);
+        }
+        
+        // Update the frame indicator and timeline slider
+        function updateFrameIndicator() {
+            const frameIndicator = document.getElementById('frameIndicator');
+            const timelineSlider = document.getElementById('timelineSlider');
+            
+            if (imuData.length > 0) {
+                const currentFrame = Math.floor(animationState.frame);
+                frameIndicator.textContent = `${currentFrame + 1}/${imuData.length}`;
+                
+                // Update slider position without triggering change event
+                timelineSlider.value = (currentFrame / (imuData.length - 1)) * 100;
+            } else {
+                frameIndicator.textContent = "0/0";
+                timelineSlider.value = 0;
+            }
         }
         
         // Update motion trail
@@ -828,6 +940,28 @@
             // Initialize 3D scene
             initScene();
             
+            // Add slider events
+            const timelineSlider = document.getElementById('timelineSlider');
+            timelineSlider.addEventListener('input', (e) => {
+                if (imuData.length > 0) {
+                    // Calculate the frame based on slider position
+                    const percentage = e.target.value / 100;
+                    const newFrame = Math.floor(percentage * (imuData.length - 1));
+                    
+                    // Update animation state
+                    animationState.frame = newFrame;
+                    
+                    // Apply the frame data
+                    applyFrameData(newFrame);
+                    
+                    // Update frame indicator
+                    updateFrameIndicator();
+                    
+                    // Update status
+                    updateStatus();
+                }
+            });
+            
             // Add button event listeners
             document.getElementById('visualizeBtn').addEventListener('click', () => {
                 const csvText = document.getElementById('csvInput').value;
@@ -835,6 +969,13 @@
                     animationState.playing = false;
                     clearMotionTrail();
                     applyFrameData(0);
+                    
+                    // Update timeline slider max value
+                    timelineSlider.max = imuData.length - 1;
+                    timelineSlider.value = 0;
+                    
+                    // Update frame indicator
+                    updateFrameIndicator();
                     updateStatus();
                 } else {
                     document.getElementById('status').textContent = 'Error: Invalid data format';
@@ -844,6 +985,7 @@
             document.getElementById('clearBtn').addEventListener('click', () => {
                 document.getElementById('csvInput').value = '';
                 resetData();
+                updateFrameIndicator();
             });
             
             document.getElementById('playBtn').addEventListener('click', () => {
@@ -863,6 +1005,7 @@
                 clearMotionTrail();
                 if (imuData.length > 0) {
                     applyFrameData(0);
+                    updateFrameIndicator();
                     updateStatus();
                 }
             });
@@ -918,6 +1061,7 @@ timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z
                 parseCSVData(sampleData);
                 clearMotionTrail();
                 applyFrameData(0);
+                updateFrameIndicator();
                 updateStatus();
             });
             
