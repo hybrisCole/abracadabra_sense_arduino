@@ -503,69 +503,12 @@ void performStabilization() {
   // Yellow LED during stabilization
   setLEDColor(true, true, false); 
   
-  // Initial filter warmup - use higher alpha to converge faster
-  Serial.println("Initial filter warmup...");
-  float warmupAlpha = 0.5; // Start with a high alpha (50% weight to new samples)
-  
-  // Take several samples with higher alpha to quickly converge to reasonable values
-  for (int i = 0; i < 10; i++) {
-    // Read values
-    float accX = imu.readFloatAccelX();
-    float accY = imu.readFloatAccelY();
-    float accZ = imu.readFloatAccelZ();
-    
-    float gyroX = imu.readFloatGyroX() - gyroXoffset;
-    float gyroY = imu.readFloatGyroY() - gyroYoffset;
-    float gyroZ = imu.readFloatGyroZ() - gyroZoffset;
-    
-    // Apply calibration offsets if available
-    if (imuNoiseCalibrated) {
-      accX -= noiseFloorAccX;
-      accY -= noiseFloorAccY;
-      accZ -= noiseFloorAccZ;
-    }
-    
-    // On first iteration, initialize prev values directly
-    if (i == 0) {
-      prevAccX = accX;
-      prevAccY = accY;
-      prevAccZ = accZ;
-      prevGyroX = gyroX;
-      prevGyroY = gyroY;
-      prevGyroZ = gyroZ;
-    } else {
-      // Apply filter with gradually decreasing alpha
-      // This helps initially converge quickly then stabilize
-      float currentAlpha = warmupAlpha * (1.0 - ((float)i / 10.0));
-      currentAlpha = max(FILTER_ALPHA * 2, currentAlpha); // Don't go below 2x normal alpha
-      
-      prevAccX = currentAlpha * accX + (1.0 - currentAlpha) * prevAccX;
-      prevAccY = currentAlpha * accY + (1.0 - currentAlpha) * prevAccY;
-      prevAccZ = currentAlpha * accZ + (1.0 - currentAlpha) * prevAccZ;
-      
-      prevGyroX = currentAlpha * gyroX + (1.0 - currentAlpha) * prevGyroX;
-      prevGyroY = currentAlpha * gyroY + (1.0 - currentAlpha) * prevGyroY;
-      prevGyroZ = currentAlpha * gyroZ + (1.0 - currentAlpha) * prevGyroZ;
-    }
-    
-    delay(20);
-  }
-  
-  // Print filter initial state after warmup
-  Serial.print("Filter initialized - Acc: (");
-  Serial.print(prevAccX, 4); Serial.print(", ");
-  Serial.print(prevAccY, 4); Serial.print(", ");
-  Serial.print(prevAccZ, 4); Serial.print(") Gyro: (");
-  Serial.print(prevGyroX, 4); Serial.print(", ");
-  Serial.print(prevGyroY, 4); Serial.print(", ");
-  Serial.print(prevGyroZ, 4); Serial.println(")");
-  
-  // Main stabilization period - samples are taken with normal alpha setting
+  // Main stabilization period
   unsigned long stabilizationStartTime = millis();
   int sampleIndex = 0;
   
   while (millis() - stabilizationStartTime < STABILIZATION_TIME) {
-    // Continue reading to maintain filter state
+    // Continue reading but not processing data
     float accX = imu.readFloatAccelX();
     float accY = imu.readFloatAccelY();
     float accZ = imu.readFloatAccelZ();
@@ -580,15 +523,6 @@ void performStabilization() {
       accY -= noiseFloorAccY;
       accZ -= noiseFloorAccZ;
     }
-    
-    // Apply low-pass filter to stabilize values (using normal alpha)
-    prevAccX = FILTER_ALPHA * accX + (1.0 - FILTER_ALPHA) * prevAccX;
-    prevAccY = FILTER_ALPHA * accY + (1.0 - FILTER_ALPHA) * prevAccY;
-    prevAccZ = FILTER_ALPHA * accZ + (1.0 - FILTER_ALPHA) * prevAccZ;
-    
-    prevGyroX = FILTER_ALPHA * gyroX + (1.0 - FILTER_ALPHA) * prevGyroX;
-    prevGyroY = FILTER_ALPHA * gyroY + (1.0 - FILTER_ALPHA) * prevGyroY;
-    prevGyroZ = FILTER_ALPHA * gyroZ + (1.0 - FILTER_ALPHA) * prevGyroZ;
     
     delay(20); // Brief delay between samples (50Hz)
     
@@ -604,17 +538,20 @@ void performStabilization() {
       delay(30);
       setLEDColor(true, true, false); // Yellow
       
-      // Print progress and current filter values every 2 seconds
+      // Print progress
       Serial.print("Stabilizing: ");
       Serial.print(percent);
       Serial.println("%");
       
       if (sampleIndex % 100 == 0) {
-        // Print current filter state every ~2 seconds
+        // Print current values every ~2 seconds
         Serial.print("Current values - Acc: (");
-        Serial.print(prevAccX, 4); Serial.print(", ");
-        Serial.print(prevAccY, 4); Serial.print(", ");
-        Serial.print(prevAccZ, 4); Serial.println(")");
+        Serial.print(accX, 4); Serial.print(", ");
+        Serial.print(accY, 4); Serial.print(", ");
+        Serial.print(accZ, 4); Serial.print(") Gyro: (");
+        Serial.print(gyroX, 4); Serial.print(", ");
+        Serial.print(gyroY, 4); Serial.print(", ");
+        Serial.print(gyroZ, 4); Serial.println(")");
       }
     }
   }
@@ -845,14 +782,6 @@ void recordSensorData() {
     accZ -= noiseFloorAccZ;
   }
   
-  // Apply low-pass filter
-  accX = FILTER_ALPHA * accX + (1.0 - FILTER_ALPHA) * prevAccX;
-  accY = FILTER_ALPHA * accY + (1.0 - FILTER_ALPHA) * prevAccY;
-  accZ = FILTER_ALPHA * accZ + (1.0 - FILTER_ALPHA) * prevAccZ;
-  gyroX = FILTER_ALPHA * gyroX + (1.0 - FILTER_ALPHA) * prevGyroX;
-  gyroY = FILTER_ALPHA * gyroY + (1.0 - FILTER_ALPHA) * prevGyroY;
-  gyroZ = FILTER_ALPHA * gyroZ + (1.0 - FILTER_ALPHA) * prevGyroZ;
-  
   // Apply thresholding to ignore small movements - use more lenient thresholds
   float accThreshold = 0.015;  // Reduced from 0.03 to 0.015 (in g)
   float gyroThreshold = 0.05;  // Reduced from 0.1 to 0.05 (in dps)
@@ -866,14 +795,6 @@ void recordSensorData() {
     gyroY = applyThreshold(gyroY, gyroThreshold);
     gyroZ = applyThreshold(gyroZ, gyroThreshold);
   }
-  
-  // Update previous values for next filtering
-  prevAccX = accX;
-  prevAccY = accY;
-  prevAccZ = accZ;
-  prevGyroX = gyroX;
-  prevGyroY = gyroY;
-  prevGyroZ = gyroZ;
   
   // Store in current gesture structure
   currentGesture.accX[sampleCount] = accX;
