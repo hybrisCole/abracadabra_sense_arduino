@@ -172,6 +172,20 @@
             justify-content: center;
         }
         
+        .control-button {
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-left: 5px;
+        }
+        
         .time-display {
             font-family: monospace;
             min-width: 80px;
@@ -230,6 +244,50 @@
             border-radius: 2px;
             padding: 1px 3px;
             pointer-events: none;
+        }
+        
+        /* Calibration panel styles */
+        .calibration-panel {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .calibration-controls {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .calibration-group {
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .calibration-group h4 {
+            margin: 0 0 10px 0;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 5px;
+        }
+        
+        .calibration-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        
+        .calibration-item input {
+            width: 80px;
+            padding: 4px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .calibration-panel button {
+            margin-top: 10px;
         }
     </style>
 </head>
@@ -292,45 +350,61 @@
                 </div>
 
                 <div class="visualization-tabs">
-                    <button class="tab-button active" data-tab="individual">Individual Datasets</button>
-                    <button class="tab-button" data-tab="comparison">Comparison View</button>
-                    <button class="tab-button" data-tab="3d">3D Visualization</button>
+                    <button class="tab-button active" data-tab="3d">3D Visualization</button>
                 </div>
 
-                <div id="individual-tab" class="tab-content active">
-                    <div class="controls">
-                        <div class="dataset-selector">
-                            <label for="dataset-select">Select Dataset:</label>
-                            <select id="dataset-select">
-                                <option value="">No datasets available</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="chart-container">
-                        <canvas id="imu-chart"></canvas>
-                    </div>
-                </div>
-
-                <div id="comparison-tab" class="tab-content">
-                    <div class="controls">
-                        <button id="show-originals-only">Show Originals Only</button>
-                        <button id="show-augmented-only">Show Augmented Only</button>
-                        <button id="show-all-datasets">Show All Datasets</button>
-                    </div>
-
-                    <div class="chart-container">
-                        <canvas id="comparison-chart"></canvas>
-                    </div>
-                </div>
-
-                <div id="3d-tab" class="tab-content">
+                <div id="3d-tab" class="tab-content active">
                     <div class="controls">
                         <div class="dataset-selector">
                             <label for="3d-dataset-select">Select Dataset:</label>
                             <select id="3d-dataset-select">
                                 <option value="">No datasets available</option>
                             </select>
+                        </div>
+                        
+                        <div class="calibration-panel">
+                            <h3>Calibration Parameters</h3>
+                            <div class="calibration-controls">
+                                <div class="calibration-group">
+                                    <h4>Accelerometer</h4>
+                                    <div class="calibration-item">
+                                        <label for="acc-scale">Scale:</label>
+                                        <input type="number" id="acc-scale" min="0.01" max="2.0" step="0.01" value="0.03">
+                                    </div>
+                                    <div class="calibration-item">
+                                        <label for="acc-offset-x">Offset X:</label>
+                                        <input type="number" id="acc-offset-x" min="-2" max="2" step="0.01" value="0">
+                                    </div>
+                                    <div class="calibration-item">
+                                        <label for="acc-offset-y">Offset Y:</label>
+                                        <input type="number" id="acc-offset-y" min="-2" max="2" step="0.01" value="0">
+                                    </div>
+                                    <div class="calibration-item">
+                                        <label for="acc-offset-z">Offset Z:</label>
+                                        <input type="number" id="acc-offset-z" min="-2" max="2" step="0.01" value="0">
+                                    </div>
+                                </div>
+                                <div class="calibration-group">
+                                    <h4>Gyroscope</h4>
+                                    <div class="calibration-item">
+                                        <label for="gyro-scale">Scale:</label>
+                                        <input type="number" id="gyro-scale" min="0.001" max="0.1" step="0.001" value="0.01">
+                                    </div>
+                                    <div class="calibration-item">
+                                        <label for="gyro-offset-x">Offset X:</label>
+                                        <input type="number" id="gyro-offset-x" min="-2" max="2" step="0.01" value="0">
+                                    </div>
+                                    <div class="calibration-item">
+                                        <label for="gyro-offset-y">Offset Y:</label>
+                                        <input type="number" id="gyro-offset-y" min="-2" max="2" step="0.01" value="0">
+                                    </div>
+                                    <div class="calibration-item">
+                                        <label for="gyro-offset-z">Offset Z:</label>
+                                        <input type="number" id="gyro-offset-z" min="-2" max="2" step="0.01" value="0">
+                                    </div>
+                                </div>
+                            </div>
+                            <button id="apply-calibration" class="control-button">Apply</button>
                         </div>
                     </div>
 
@@ -343,6 +417,7 @@
                         </div>
                         <div class="timeline-controls">
                             <button id="play-button" class="play-button">▶</button>
+                            <button id="reset-button" class="control-button">⟳</button>
                             <div class="time-display"><span id="current-time">0</span> ms</div>
                             <input type="range" id="timeline-slider" class="timeline-slider" min="0" value="0" max="100">
                         </div>
@@ -354,26 +429,30 @@
 
     <script>
         let datasetCount = 1;
-        let charts = {};
         let datasets = [];
-        let currentDataset = null;
         
-        // Colors for different datasets
-        const originalColor = 'rgba(54, 162, 235, 1)';
-        const augmentedColors = [
-            'rgba(255, 99, 132, 0.7)',
-            'rgba(75, 192, 192, 0.7)',
-            'rgba(255, 159, 64, 0.7)',
-            'rgba(153, 102, 255, 0.7)',
-            'rgba(255, 205, 86, 0.7)'
-        ];
-
         // 3D visualization variables
         let scene, camera, renderer, sphere, axes;
         let animationId = null;
         let isPlaying = false;
         let currentFrame = 0;
         let currentDataPoints = [];
+        
+        // Calibration parameters
+        let calibration = {
+            acc: {
+                scale: 0.03,
+                offsetX: 0,
+                offsetY: 0,
+                offsetZ: 0
+            },
+            gyro: {
+                scale: 0.01,
+                offsetX: 0,
+                offsetY: 0,
+                offsetZ: 0
+            }
+        };
         
         // Add another dataset input
         function addDataset() {
@@ -509,7 +588,6 @@
             .then(data => {
                 // Process the augmentation data
                 processAugmentationData(data);
-                initCharts();
                 
                 // Show the visualization section
                 document.getElementById('visualization-section').style.display = 'block';
@@ -519,11 +597,8 @@
                 
                 // Set initial dataset
                 if (datasets.length > 0) {
-                    selectDataset(0);
+                    load3DVisualizationData(0);
                 }
-                
-                // Populate comparison chart with all datasets
-                updateComparisonChart();
             })
             .catch(error => {
                 console.error('Error:', error);
@@ -550,100 +625,15 @@
                 `Gesture: ${data.gesture_name}`;
         }
         
-        // Initialize all charts
-        function initCharts() {
-            // Main IMU chart
-            charts.imu = new Chart(
-                document.getElementById('imu-chart').getContext('2d'),
-                {
-                    type: 'line',
-                    data: {
-                        datasets: []
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: {
-                            title: {
-                                display: true,
-                                text: 'IMU Data'
-                            },
-                            tooltip: {
-                                mode: 'index',
-                                intersect: false,
-                            }
-                        },
-                        interaction: {
-                            mode: 'nearest',
-                            axis: 'x',
-                            intersect: false
-                        },
-                        scales: {
-                            x: {
-                                title: {
-                                    display: true,
-                                    text: 'Time (ms)'
-                                }
-                            },
-                            y: {
-                                title: {
-                                    display: true,
-                                    text: 'Value'
-                                }
-                            }
-                        }
-                    }
-                }
-            );
-
-            // Comparison chart
-            charts.comparison = new Chart(
-                document.getElementById('comparison-chart').getContext('2d'),
-                {
-                    type: 'line',
-                    data: {
-                        datasets: []
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: {
-                            title: {
-                                display: true,
-                                text: 'Dataset Comparison'
-                            }
-                        },
-                        scales: {
-                            x: {
-                                title: {
-                                    display: true,
-                                    text: 'Time (ms)'
-                                }
-                            },
-                            y: {
-                                title: {
-                                    display: true,
-                                    text: 'Value'
-                                }
-                            }
-                        }
-                    }
-                }
-            );
-        }
-        
         // Populate dataset selectors
         function populateDatasetSelectors() {
-            const select = document.getElementById('dataset-select');
             const select3D = document.getElementById('3d-dataset-select');
-            select.innerHTML = '';
             select3D.innerHTML = '';
             
             datasets.forEach((dataset, index) => {
-                const option = document.createElement('option');
-                option.value = index;
-                option.textContent = `${dataset.type.charAt(0).toUpperCase() + dataset.type.slice(1)} ${dataset.dataset_id}`;
-                select.appendChild(option);
-                
-                const option3D = option.cloneNode(true);
+                const option3D = document.createElement('option');
+                option3D.value = index;
+                option3D.textContent = `${dataset.type.charAt(0).toUpperCase() + dataset.type.slice(1)} ${dataset.dataset_id}`;
                 select3D.appendChild(option3D);
             });
             
@@ -668,119 +658,6 @@
                 });
             });
         }
-        
-        // Select and display a dataset
-        async function selectDataset(index) {
-            const dataset = datasets[index];
-            currentDataset = dataset;
-            
-            try {
-                const parsedData = await parseCSVData(dataset.csv_data);
-                
-                // Update charts with the parsed data
-                updateIMUChart(parsedData, dataset.is_original);
-            } catch (error) {
-                console.error('Error parsing CSV data:', error);
-                alert('Failed to parse dataset');
-            }
-        }
-        
-        // Update the main IMU chart
-        function updateIMUChart(data, isOriginal) {
-            const chart = charts['imu'];
-            const color = isOriginal ? originalColor : augmentedColors[0];
-            
-            // Prepare datasets for the chart
-            const chartDatasets = [
-                {
-                    label: 'Acc X',
-                    data: data.map(row => ({ x: row.timestamp, y: row.acc_x })),
-                    borderColor: 'rgba(255, 99, 132, 1)',
-                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                    borderWidth: 2,
-                    hidden: false
-                },
-                {
-                    label: 'Acc Y',
-                    data: data.map(row => ({ x: row.timestamp, y: row.acc_y })),
-                    borderColor: 'rgba(54, 162, 235, 1)',
-                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                    borderWidth: 2,
-                    hidden: false
-                },
-                {
-                    label: 'Acc Z',
-                    data: data.map(row => ({ x: row.timestamp, y: row.acc_z })),
-                    borderColor: 'rgba(255, 206, 86, 1)',
-                    backgroundColor: 'rgba(255, 206, 86, 0.2)',
-                    borderWidth: 2,
-                    hidden: false
-                },
-                {
-                    label: 'Gyro X',
-                    data: data.map(row => ({ x: row.timestamp, y: row.gyro_x })),
-                    borderColor: 'rgba(75, 192, 192, 1)',
-                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                    borderWidth: 2,
-                    hidden: false
-                },
-                {
-                    label: 'Gyro Y',
-                    data: data.map(row => ({ x: row.timestamp, y: row.gyro_y })),
-                    borderColor: 'rgba(153, 102, 255, 1)',
-                    backgroundColor: 'rgba(153, 102, 255, 0.2)',
-                    borderWidth: 2,
-                    hidden: false
-                },
-                {
-                    label: 'Gyro Z',
-                    data: data.map(row => ({ x: row.timestamp, y: row.gyro_z })),
-                    borderColor: 'rgba(255, 159, 64, 1)',
-                    backgroundColor: 'rgba(255, 159, 64, 0.2)',
-                    borderWidth: 2,
-                    hidden: false
-                }
-            ];
-            
-            // Update chart data
-            chart.data.datasets = chartDatasets;
-            chart.update();
-        }
-        
-        // Update comparison chart with multiple datasets
-        async function updateComparisonChart(filter = null) {
-            const chart = charts.comparison;
-            chart.data.datasets = [];
-            
-            // Process each dataset for comparison
-            const promises = datasets.map(async (dataset, index) => {
-                // Apply filter if needed
-                if (filter === 'original' && !dataset.is_original) return;
-                if (filter === 'augmented' && dataset.is_original) return;
-                
-                try {
-                    const parsedData = await parseCSVData(dataset.csv_data);
-                    const color = dataset.is_original ? originalColor : augmentedColors[index % augmentedColors.length];
-                    
-                    // Only add acc_x for now to keep chart readable
-                    return {
-                        label: `${dataset.is_original ? 'Original' : 'Augmented'} ${dataset.dataset_id}`,
-                        data: parsedData.map(row => ({ x: row.timestamp, y: row.acc_x })),
-                        borderColor: color,
-                        backgroundColor: 'transparent',
-                        borderWidth: dataset.is_original ? 3 : 1,
-                        borderDash: dataset.is_original ? [] : [5, 5]
-                    };
-                } catch (error) {
-                    console.error(`Error parsing dataset ${index}:`, error);
-                    return null;
-                }
-            });
-            
-            const results = await Promise.all(promises);
-            chart.data.datasets = results.filter(Boolean);
-            chart.update();
-        }
 
         // Tab switching functionality
         document.querySelectorAll('.tab-button').forEach(button => {
@@ -803,52 +680,42 @@
 
         // Event listeners for controls
         document.addEventListener('DOMContentLoaded', () => {
-            document.getElementById('dataset-select').addEventListener('change', (e) => {
-                selectDataset(parseInt(e.target.value));
-            });
-
-            document.getElementById('show-originals-only').addEventListener('click', () => {
-                updateComparisonChart('original');
-            });
-
-            document.getElementById('show-augmented-only').addEventListener('click', () => {
-                updateComparisonChart('augmented');
-            });
-
-            document.getElementById('show-all-datasets').addEventListener('click', () => {
-                updateComparisonChart();
-            });
-
-            // Initialize 3D visualization when the 3D tab is clicked
-            document.querySelectorAll('.tab-button').forEach(button => {
-                button.addEventListener('click', () => {
-                    // Make sure the tab content is visible before initializing
-                    const tabId = button.dataset.tab;
-                    if (tabId === '3d') {
-                        // Show the tab content first
-                        document.querySelectorAll('.tab-content').forEach(content => {
-                            content.classList.remove('active');
-                        });
-                        const tabContent = document.getElementById('3d-tab');
-                        if (tabContent) {
-                            tabContent.classList.add('active');
-                        }
-                        
-                        // Initialize visualization if needed
-                        if (!scene) {
-                            setTimeout(() => {
-                                init3DVisualization();
-                                
-                                // Load first dataset if available
-                                if (datasets.length > 0) {
-                                    load3DVisualizationData(0);
-                                }
-                            }, 100); // Short delay to ensure tab is visible
-                        }
-                    }
-                });
-            });
+            // Initialize the 3D visualization when the 3D tab is visible
+            setTimeout(() => {
+                init3DVisualization();
+            }, 100);
+            
+            // Set up calibration controls
+            document.getElementById('apply-calibration').addEventListener('click', applyCalibration);
+            
+            // Initialize calibration inputs
+            document.getElementById('acc-scale').value = calibration.acc.scale;
+            document.getElementById('acc-offset-x').value = calibration.acc.offsetX;
+            document.getElementById('acc-offset-y').value = calibration.acc.offsetY;
+            document.getElementById('acc-offset-z').value = calibration.acc.offsetZ;
+            
+            document.getElementById('gyro-scale').value = calibration.gyro.scale;
+            document.getElementById('gyro-offset-x').value = calibration.gyro.offsetX;
+            document.getElementById('gyro-offset-y').value = calibration.gyro.offsetY;
+            document.getElementById('gyro-offset-z').value = calibration.gyro.offsetZ;
         });
+        
+        // Apply calibration settings
+        function applyCalibration() {
+            // Get calibration values from inputs
+            calibration.acc.scale = parseFloat(document.getElementById('acc-scale').value);
+            calibration.acc.offsetX = parseFloat(document.getElementById('acc-offset-x').value);
+            calibration.acc.offsetY = parseFloat(document.getElementById('acc-offset-y').value);
+            calibration.acc.offsetZ = parseFloat(document.getElementById('acc-offset-z').value);
+            
+            calibration.gyro.scale = parseFloat(document.getElementById('gyro-scale').value);
+            calibration.gyro.offsetX = parseFloat(document.getElementById('gyro-offset-x').value);
+            calibration.gyro.offsetY = parseFloat(document.getElementById('gyro-offset-y').value);
+            calibration.gyro.offsetZ = parseFloat(document.getElementById('gyro-offset-z').value);
+            
+            // Reset visualization to apply new calibration
+            resetVisualization();
+        }
 
         // Initialize 3D scene
         function init3DVisualization() {
@@ -962,6 +829,9 @@
             
             // Start animation loop
             animate();
+            
+            // Initialize controls for the 3D visualization
+            init3DControls();
         }
         
         // Animation loop
@@ -1106,11 +976,8 @@
                     throw new Error('No valid data points found');
                 }
                 
-                // Reset sphere position and trail
-                if (sphere) {
-                    sphere.position.set(0, 0.5, 0);
-                    window.trailPositions = [];
-                }
+                // Reset visualization
+                resetVisualization();
                 
                 // Setup timeline slider
                 const slider = document.getElementById('timeline-slider');
@@ -1121,29 +988,21 @@
                     
                     // Set up event listener for slider
                     slider.addEventListener('input', function() {
-                        // Reset position when manually moving the slider
-                        if (sphere) sphere.position.set(0, 0.5, 0);
-                        window.trailPositions = [];
+                        // Pause playback if currently playing
+                        if (isPlaying) {
+                            togglePlayback();
+                        }
                         
+                        // Reset position when manually moving the slider
+                        resetVisualization();
+                        
+                        // Update to the selected frame
                         currentFrame = parseInt(this.value);
                         updateIMU3DVisualization(currentFrame);
                     });
                 }
                 
-                // Set up play button
-                const playButton = document.getElementById('play-button');
-                if (playButton) {
-                    playButton.addEventListener('click', function() {
-                        // Reset position when starting playback
-                        if (sphere) sphere.position.set(0, 0.5, 0);
-                        window.trailPositions = [];
-                        
-                        togglePlayback();
-                    });
-                }
-                
                 // Update display with first frame
-                currentFrame = 0;
                 updateIMU3DVisualization(0);
                 
             } catch (error) {
@@ -1173,12 +1032,22 @@
             const accZValueEl = document.getElementById('acc-z-value');
             const timelineSlider = document.getElementById('timeline-slider');
             
+            // Apply calibration to accelerometer values
+            const calibratedAccX = dataPoint.acc_x + calibration.acc.offsetX;
+            const calibratedAccY = dataPoint.acc_y + calibration.acc.offsetY;
+            const calibratedAccZ = dataPoint.acc_z + calibration.acc.offsetZ;
+            
+            // Apply calibration to gyroscope values
+            const calibratedGyroX = dataPoint.gyro_x + calibration.gyro.offsetX;
+            const calibratedGyroY = dataPoint.gyro_y + calibration.gyro.offsetY;
+            const calibratedGyroZ = dataPoint.gyro_z + calibration.gyro.offsetZ;
+            
             // Update UI elements if they exist
             if (frameNumberEl) frameNumberEl.textContent = frameIndex;
             if (currentTimeEl) currentTimeEl.textContent = dataPoint.timestamp;
-            if (accXValueEl) accXValueEl.textContent = dataPoint.acc_x.toFixed(2);
-            if (accYValueEl) accYValueEl.textContent = dataPoint.acc_y.toFixed(2);
-            if (accZValueEl) accZValueEl.textContent = dataPoint.acc_z.toFixed(2);
+            if (accXValueEl) accXValueEl.textContent = calibratedAccX.toFixed(2);
+            if (accYValueEl) accYValueEl.textContent = calibratedAccY.toFixed(2);
+            if (accZValueEl) accZValueEl.textContent = calibratedAccZ.toFixed(2);
             
             // Update timeline slider
             if (timelineSlider) timelineSlider.value = frameIndex;
@@ -1190,23 +1059,23 @@
                 const arrows = sphere.userData.arrows;
                 
                 // Update arrow lengths for acceleration
-                arrows.accX.setLength(Math.abs(dataPoint.acc_x) * scale);
-                arrows.accY.setLength(Math.abs(dataPoint.acc_y) * scale);
-                arrows.accZ.setLength(Math.abs(dataPoint.acc_z) * scale);
+                arrows.accX.setLength(Math.abs(calibratedAccX) * scale);
+                arrows.accY.setLength(Math.abs(calibratedAccY) * scale);
+                arrows.accZ.setLength(Math.abs(calibratedAccZ) * scale);
                 
                 // Set arrow directions
-                arrows.accX.setDirection(new THREE.Vector3(Math.sign(dataPoint.acc_x), 0, 0));
-                arrows.accY.setDirection(new THREE.Vector3(0, Math.sign(dataPoint.acc_y), 0));
-                arrows.accZ.setDirection(new THREE.Vector3(0, 0, Math.sign(dataPoint.acc_z)));
+                arrows.accX.setDirection(new THREE.Vector3(Math.sign(calibratedAccX), 0, 0));
+                arrows.accY.setDirection(new THREE.Vector3(0, Math.sign(calibratedAccY), 0));
+                arrows.accZ.setDirection(new THREE.Vector3(0, 0, Math.sign(calibratedAccZ)));
                 
                 // Position the sphere based on sensor data
                 // Use accumulated accelerometer data for position (Simple integration)
-                const posScale = 0.03; // Scale for position to make movement visible
+                const posScale = calibration.acc.scale; // Scale for position to make movement visible
                 
                 // Move the sphere based on the current accelerometer values
-                sphere.position.x += dataPoint.acc_x * posScale;
-                sphere.position.y += dataPoint.acc_y * posScale;
-                sphere.position.z += dataPoint.acc_z * posScale;
+                sphere.position.x += calibratedAccX * posScale;
+                sphere.position.y += calibratedAccY * posScale;
+                sphere.position.z += calibratedAccZ * posScale;
                 
                 // Keep within reasonable bounds
                 sphere.position.x = Math.min(4, Math.max(-4, sphere.position.x));
@@ -1250,10 +1119,29 @@
                 }
                 
                 // Apply gyroscope data to sphere rotation (radians)
-                const gyroScale = 0.01; // Scale gyro data for visualization
-                sphere.rotation.x = dataPoint.gyro_x * gyroScale;
-                sphere.rotation.y = dataPoint.gyro_y * gyroScale;
-                sphere.rotation.z = dataPoint.gyro_z * gyroScale;
+                const gyroScale = calibration.gyro.scale; // Scale gyro data for visualization
+                sphere.rotation.x = calibratedGyroX * gyroScale;
+                sphere.rotation.y = calibratedGyroY * gyroScale;
+                sphere.rotation.z = calibratedGyroZ * gyroScale;
+            }
+        }
+        
+        // Reset the visualization to the initial state
+        function resetVisualization() {
+            // Reset sphere position
+            if (sphere) {
+                sphere.position.set(0, 0.5, 0);
+            }
+            
+            // Clear trail
+            window.trailPositions = [];
+            
+            // Reset to first frame
+            currentFrame = 0;
+            
+            // Update visualization with the first frame
+            if (currentDataPoints && currentDataPoints.length > 0) {
+                updateIMU3DVisualization(0);
             }
         }
         
@@ -1275,6 +1163,8 @@
             
             currentFrame++;
             if (currentFrame >= currentDataPoints.length) {
+                // Reset to beginning when we reach the end
+                resetVisualization();
                 currentFrame = 0;
             }
             
@@ -1282,6 +1172,21 @@
             
             // Continue animation at about 30 fps
             setTimeout(playAnimation, 33);
+        }
+        
+        // Initialize event listeners for 3D visualization
+        function init3DControls() {
+            // Add event listener for reset button
+            const resetButton = document.getElementById('reset-button');
+            if (resetButton) {
+                resetButton.addEventListener('click', resetVisualization);
+            }
+            
+            // Add event listener for play button
+            const playButton = document.getElementById('play-button');
+            if (playButton) {
+                playButton.addEventListener('click', togglePlayback);
+            }
         }
     </script>
 </body>
