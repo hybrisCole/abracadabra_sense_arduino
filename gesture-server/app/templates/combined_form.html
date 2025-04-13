@@ -191,6 +191,74 @@
             min-width: 80px;
         }
         
+        /* Timeframe navigation display */
+        .timeframe-nav {
+            display: flex;
+            flex-direction: column;
+            margin-top: 15px;
+            background-color: rgba(0, 0, 0, 0.05);
+            border-radius: 8px;
+            padding: 10px;
+        }
+        
+        .timeframe-row {
+            display: flex;
+            align-items: center;
+            padding: 5px 0;
+            font-family: monospace;
+        }
+        
+        .timeframe-row.current {
+            background-color: rgba(74, 118, 168, 0.2);
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        
+        .frame-index {
+            width: 50px;
+            text-align: right;
+            margin-right: 10px;
+        }
+        
+        .frame-time {
+            width: 80px;
+        }
+        
+        .frame-data {
+            display: flex;
+            flex: 1;
+            gap: 20px;
+        }
+        
+        .acc-value, .gyro-value {
+            display: flex;
+            gap: 5px;
+        }
+        
+        /* Fixed width containers for numeric values */
+        .data-label {
+            width: 45px;
+            display: inline-block;
+            text-align: right;
+        }
+        
+        .data-x, .data-y, .data-z {
+            width: 60px; 
+            display: inline-block;
+            text-align: right;
+            font-family: monospace;
+        }
+        
+        .data-separator {
+            width: 10px;
+            display: inline-block;
+            text-align: center;
+        }
+        
+        .data-x { color: #dd2222; }
+        .data-y { color: #22aa22; }
+        .data-z { color: #2222dd; }
+        
         /* Axis labels for 3D visualization */
         .axis-label {
             position: absolute;
@@ -289,6 +357,33 @@
         .calibration-panel button {
             margin-top: 10px;
         }
+        
+        /* Axis legend styles */
+        .axis-legend {
+            position: absolute;
+            bottom: 15px;
+            right: 15px;
+            background-color: rgba(0, 0, 0, 0.7);
+            border-radius: 5px;
+            padding: 8px;
+            color: white;
+            font-size: 14px;
+            z-index: 1000;
+        }
+        .axis-legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+        .axis-legend-color {
+            width: 15px;
+            height: 15px;
+            margin-right: 10px;
+            border-radius: 3px;
+        }
+        .x-color { background-color: #ff0000; }
+        .y-color { background-color: #00ff00; }
+        .z-color { background-color: #0000ff; }
     </style>
 </head>
 <body>
@@ -349,78 +444,82 @@
                     </div>
                 </div>
 
-                <div class="visualization-tabs">
-                    <button class="tab-button active" data-tab="3d">3D Visualization</button>
-                </div>
-
-                <div id="3d-tab" class="tab-content active">
-                    <div class="controls">
-                        <div class="dataset-selector">
-                            <label for="3d-dataset-select">Select Dataset:</label>
-                            <select id="3d-dataset-select">
-                                <option value="">No datasets available</option>
-                            </select>
-                        </div>
-                        
-                        <div class="calibration-panel">
-                            <h3>Calibration Parameters</h3>
-                            <div class="calibration-controls">
-                                <div class="calibration-group">
-                                    <h4>Accelerometer</h4>
-                                    <div class="calibration-item">
-                                        <label for="acc-scale">Scale:</label>
-                                        <input type="number" id="acc-scale" min="0.01" max="2.0" step="0.01" value="0.03">
-                                    </div>
-                                    <div class="calibration-item">
-                                        <label for="acc-offset-x">Offset X:</label>
-                                        <input type="number" id="acc-offset-x" min="-2" max="2" step="0.01" value="0">
-                                    </div>
-                                    <div class="calibration-item">
-                                        <label for="acc-offset-y">Offset Y:</label>
-                                        <input type="number" id="acc-offset-y" min="-2" max="2" step="0.01" value="0">
-                                    </div>
-                                    <div class="calibration-item">
-                                        <label for="acc-offset-z">Offset Z:</label>
-                                        <input type="number" id="acc-offset-z" min="-2" max="2" step="0.01" value="0">
-                                    </div>
+                <div class="controls">
+                    <div class="dataset-selector">
+                        <label for="3d-dataset-select">Select Dataset:</label>
+                        <select id="3d-dataset-select">
+                            <option value="">No datasets available</option>
+                        </select>
+                    </div>
+                    
+                    <div class="calibration-panel">
+                        <h3>Calibration Parameters</h3>
+                        <div class="calibration-controls">
+                            <div class="calibration-group">
+                                <h4>Accelerometer</h4>
+                                <div class="calibration-item">
+                                    <label for="acc-scale">Scale:</label>
+                                    <input type="number" id="acc-scale" min="0.01" max="2.0" step="0.01" value="0.03">
                                 </div>
-                                <div class="calibration-group">
-                                    <h4>Gyroscope</h4>
-                                    <div class="calibration-item">
-                                        <label for="gyro-scale">Scale:</label>
-                                        <input type="number" id="gyro-scale" min="0.001" max="0.1" step="0.001" value="0.01">
-                                    </div>
-                                    <div class="calibration-item">
-                                        <label for="gyro-offset-x">Offset X:</label>
-                                        <input type="number" id="gyro-offset-x" min="-2" max="2" step="0.01" value="0">
-                                    </div>
-                                    <div class="calibration-item">
-                                        <label for="gyro-offset-y">Offset Y:</label>
-                                        <input type="number" id="gyro-offset-y" min="-2" max="2" step="0.01" value="0">
-                                    </div>
-                                    <div class="calibration-item">
-                                        <label for="gyro-offset-z">Offset Z:</label>
-                                        <input type="number" id="gyro-offset-z" min="-2" max="2" step="0.01" value="0">
-                                    </div>
+                                <div class="calibration-item">
+                                    <label for="acc-offset-x">Offset X:</label>
+                                    <input type="number" id="acc-offset-x" min="-2" max="2" step="0.01" value="0">
+                                </div>
+                                <div class="calibration-item">
+                                    <label for="acc-offset-y">Offset Y:</label>
+                                    <input type="number" id="acc-offset-y" min="-2" max="2" step="0.01" value="0">
+                                </div>
+                                <div class="calibration-item">
+                                    <label for="acc-offset-z">Offset Z:</label>
+                                    <input type="number" id="acc-offset-z" min="-2" max="2" step="0.01" value="0">
                                 </div>
                             </div>
-                            <button id="apply-calibration" class="control-button">Apply</button>
+                            <div class="calibration-group">
+                                <h4>Gyroscope</h4>
+                                <div class="calibration-item">
+                                    <label for="gyro-scale">Scale:</label>
+                                    <input type="number" id="gyro-scale" min="0.001" max="0.1" step="0.001" value="0.01">
+                                </div>
+                                <div class="calibration-item">
+                                    <label for="gyro-offset-x">Offset X:</label>
+                                    <input type="number" id="gyro-offset-x" min="-2" max="2" step="0.01" value="0">
+                                </div>
+                                <div class="calibration-item">
+                                    <label for="gyro-offset-y">Offset Y:</label>
+                                    <input type="number" id="gyro-offset-y" min="-2" max="2" step="0.01" value="0">
+                                </div>
+                                <div class="calibration-item">
+                                    <label for="gyro-offset-z">Offset Z:</label>
+                                    <input type="number" id="gyro-offset-z" min="-2" max="2" step="0.01" value="0">
+                                </div>
+                            </div>
+                        </div>
+                        <button id="apply-calibration" class="control-button">Apply</button>
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <div id="visualization-3d-container">
+                        <div class="frame-info">Frame: <span id="frame-number">0</span></div>
+                        <div class="axis-label x-axis">X: <span id="acc-x-value">0</span></div>
+                        <div class="axis-label y-axis">Y: <span id="acc-y-value">0</span></div>
+                        <div class="axis-label z-axis">Z: <span id="acc-z-value">0</span></div>
+                        <div class="axis-legend">
+                            <div class="axis-legend-item"><div class="axis-legend-color x-color"></div>X-Axis</div>
+                            <div class="axis-legend-item"><div class="axis-legend-color y-color"></div>Y-Axis</div>
+                            <div class="axis-legend-item"><div class="axis-legend-color z-color"></div>Z-Axis</div>
                         </div>
                     </div>
-
-                    <div class="chart-container">
-                        <div id="visualization-3d-container">
-                            <div class="frame-info">Frame: <span id="frame-number">0</span></div>
-                            <div class="axis-label x-axis">X: <span id="acc-x-value">0</span></div>
-                            <div class="axis-label y-axis">Y: <span id="acc-y-value">0</span></div>
-                            <div class="axis-label z-axis">Z: <span id="acc-z-value">0</span></div>
-                        </div>
-                        <div class="timeline-controls">
-                            <button id="play-button" class="play-button">▶</button>
-                            <button id="reset-button" class="control-button">⟳</button>
-                            <div class="time-display"><span id="current-time">0</span> ms</div>
-                            <input type="range" id="timeline-slider" class="timeline-slider" min="0" value="0" max="100">
-                        </div>
+                    <div class="timeline-controls">
+                        <button id="play-button" class="play-button">▶</button>
+                        <button id="reset-button" class="control-button">⟳</button>
+                        <div class="time-display"><span id="current-time">0</span> ms</div>
+                        <input type="range" id="timeline-slider" class="timeline-slider" min="0" value="0" max="100">
+                    </div>
+                    
+                    <!-- Timeframe Navigation Display -->
+                    <div class="timeframe-nav">
+                        <div id="timeframe-rows"></div>
                     </div>
                 </div>
             </div>
@@ -589,9 +688,6 @@
                 // Process the augmentation data
                 processAugmentationData(data);
                 
-                // Show the visualization section
-                document.getElementById('visualization-section').style.display = 'block';
-                
                 // Populate dataset selectors
                 populateDatasetSelectors();
                 
@@ -623,6 +719,9 @@
             // Add gesture name to header
             document.querySelector('.header p').textContent = 
                 `Gesture: ${data.gesture_name}`;
+                
+            // Make visualization section visible
+            document.getElementById('visualization-section').style.display = 'block';
         }
         
         // Populate dataset selectors
@@ -659,31 +758,10 @@
             });
         }
 
-        // Tab switching functionality
-        document.querySelectorAll('.tab-button').forEach(button => {
-            button.addEventListener('click', () => {
-                const tab = button.dataset.tab;
-                
-                // Update active button
-                document.querySelectorAll('.tab-button').forEach(btn => {
-                    btn.classList.remove('active');
-                });
-                button.classList.add('active');
-                
-                // Update active tab
-                document.querySelectorAll('.tab-content').forEach(content => {
-                    content.classList.remove('active');
-                });
-                document.getElementById(`${tab}-tab`).classList.add('active');
-            });
-        });
-
         // Event listeners for controls
         document.addEventListener('DOMContentLoaded', () => {
-            // Initialize the 3D visualization when the 3D tab is visible
-            setTimeout(() => {
-                init3DVisualization();
-            }, 100);
+            // Initialize the 3D visualization immediately
+            init3DVisualization();
             
             // Set up calibration controls
             document.getElementById('apply-calibration').addEventListener('click', applyCalibration);
@@ -724,6 +802,15 @@
             if (!container) {
                 console.error('3D container not found');
                 return;
+            }
+            
+            console.log("Container size on init:", container.clientWidth, "x", container.clientHeight);
+            
+            // Force a container size if it's too small or zero
+            if (container.clientWidth < 100 || container.clientHeight < 100) {
+                container.style.width = '100%';
+                container.style.height = '400px';
+                console.log("Forcing container size");
             }
             
             // Create scene
@@ -787,17 +874,29 @@
             window.motionTrail = trail;
             window.trailPositions = [];
             
-            // Create sphere for IMU data
-            const geometry = new THREE.SphereGeometry(0.5, 32, 32);
-            const material = new THREE.MeshPhongMaterial({ 
-                color: 0x3399ff,
-                transparent: true,
-                opacity: 0.8,
-                emissive: 0x1a2939,
-                emissiveIntensity: 0.2
-            });
-            sphere = new THREE.Mesh(geometry, material);
+            // Create cube for IMU data instead of sphere
+            const geometry = new THREE.BoxGeometry(1, 1, 1);
+            const materials = [
+                new THREE.MeshPhongMaterial({ color: 0xff4444, transparent: true, opacity: 0.7 }), // red (right)
+                new THREE.MeshPhongMaterial({ color: 0x44ff44, transparent: true, opacity: 0.7 }), // green (left)
+                new THREE.MeshPhongMaterial({ color: 0x4444ff, transparent: true, opacity: 0.7 }), // blue (top)
+                new THREE.MeshPhongMaterial({ color: 0xffff44, transparent: true, opacity: 0.7 }), // yellow (bottom)
+                new THREE.MeshPhongMaterial({ color: 0xff44ff, transparent: true, opacity: 0.7 }), // purple (front)
+                new THREE.MeshPhongMaterial({ color: 0x44ffff, transparent: true, opacity: 0.7 })  // cyan (back)
+            ];
+            
+            // Replace sphere with cube
+            sphere = new THREE.Mesh(geometry, materials);
             scene.add(sphere);
+            
+            // Add wireframe to cube for better visibility
+            const edgeGeometry = new THREE.BoxGeometry(1.01, 1.01, 1.01);
+            const edgeMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0x000000, 
+                wireframe: true 
+            });
+            const cubeEdges = new THREE.Mesh(edgeGeometry, edgeMaterial);
+            sphere.add(cubeEdges); // Add wireframe as child of the cube
             
             // Add small reference sphere at origin
             const originGeometry = new THREE.SphereGeometry(0.1, 16, 16);
@@ -838,9 +937,10 @@
         function animate() {
             animationId = requestAnimationFrame(animate);
             
-            // Rotate sphere slightly for visual effect
+            // Rotate cube slightly for visual effect when not playing data
             if (!isPlaying && sphere) {
                 sphere.rotation.y += 0.005;
+                sphere.rotation.x += 0.002;
             }
             
             renderer.render(scene, camera);
@@ -853,67 +953,183 @@
         
         // Add printed axis labels to the scene
         function addAxisLabels() {
-            // Only add axis labels if CSS2DObject is available
-            if (typeof THREE.CSS2DObject !== 'function') {
-                console.warn('CSS2DObject not available for axis labels');
-                return;
+            // Create larger, more visible axis helpers with proper coloring
+            const axisLength = 5;
+            const axisWidth = 3;
+            
+            // Remove default axes helper to replace with custom ones
+            if (axes) {
+                scene.remove(axes);
             }
             
-            // Create axis labels using HTML elements for better readability
-            const xLabel = document.createElement('div');
-            xLabel.className = 'axis-label-3d';
-            xLabel.innerHTML = 'X';
-            xLabel.style.color = 'red';
-            const xLabelObj = new THREE.CSS2DObject(xLabel);
-            xLabelObj.position.set(3.5, 0, 0);
-            scene.add(xLabelObj);
+            // X axis (red)
+            const xAxisGeometry = new THREE.CylinderGeometry(0.03, 0.03, axisLength, 8);
+            xAxisGeometry.rotateZ(-Math.PI / 2);
+            xAxisGeometry.translate(axisLength/2, 0, 0);
+            const xAxisMaterial = new THREE.MeshBasicMaterial({color: 0xff0000});
+            const xAxis = new THREE.Mesh(xAxisGeometry, xAxisMaterial);
+            scene.add(xAxis);
             
-            const yLabel = document.createElement('div');
-            yLabel.className = 'axis-label-3d';
-            yLabel.innerHTML = 'Y';
-            yLabel.style.color = 'green';
-            const yLabelObj = new THREE.CSS2DObject(yLabel);
-            yLabelObj.position.set(0, 3.5, 0);
-            scene.add(yLabelObj);
+            // Y axis (green)
+            const yAxisGeometry = new THREE.CylinderGeometry(0.03, 0.03, axisLength, 8);
+            yAxisGeometry.translate(0, axisLength/2, 0);
+            const yAxisMaterial = new THREE.MeshBasicMaterial({color: 0x00ff00});
+            const yAxis = new THREE.Mesh(yAxisGeometry, yAxisMaterial);
+            scene.add(yAxis);
             
-            const zLabel = document.createElement('div');
-            zLabel.className = 'axis-label-3d';
-            zLabel.innerHTML = 'Z';
-            zLabel.style.color = 'blue';
-            const zLabelObj = new THREE.CSS2DObject(zLabel);
-            zLabelObj.position.set(0, 0, 3.5);
-            scene.add(zLabelObj);
+            // Z axis (blue)
+            const zAxisGeometry = new THREE.CylinderGeometry(0.03, 0.03, axisLength, 8);
+            zAxisGeometry.rotateX(Math.PI / 2);
+            zAxisGeometry.translate(0, 0, axisLength/2);
+            const zAxisMaterial = new THREE.MeshBasicMaterial({color: 0x0000ff});
+            const zAxis = new THREE.Mesh(zAxisGeometry, zAxisMaterial);
+            scene.add(zAxis);
             
-            // Add X, Y, Z labels at regular intervals along each axis
-            for (let i = 1; i <= 3; i++) {
-                const value = i.toString();
+            // Create cone tips for arrows
+            const coneRadius = 0.1;
+            const coneHeight = 0.3;
+            
+            // X arrow tip
+            const xConeGeometry = new THREE.ConeGeometry(coneRadius, coneHeight, 8);
+            xConeGeometry.rotateZ(-Math.PI / 2);
+            xConeGeometry.translate(axisLength, 0, 0);
+            const xCone = new THREE.Mesh(xConeGeometry, xAxisMaterial);
+            scene.add(xCone);
+            
+            // Y arrow tip
+            const yConeGeometry = new THREE.ConeGeometry(coneRadius, coneHeight, 8);
+            yConeGeometry.translate(0, axisLength, 0);
+            const yCone = new THREE.Mesh(yConeGeometry, yAxisMaterial);
+            scene.add(yCone);
+            
+            // Z arrow tip
+            const zConeGeometry = new THREE.ConeGeometry(coneRadius, coneHeight, 8);
+            zConeGeometry.rotateX(Math.PI / 2);
+            zConeGeometry.translate(0, 0, axisLength);
+            const zCone = new THREE.Mesh(zConeGeometry, zAxisMaterial);
+            scene.add(zCone);
+            
+            // Create and add physical text meshes for the axes
+            // Use alternate approach with sprite-based labels that always face the camera
+            // These will show regardless of whether CSS2DRenderer is working
+            
+            // Create axis label sprites directly
+            const createTextSprite = (text, color, position) => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = 128;
+                canvas.height = 64;
                 
-                // X axis markers
-                const xMarker = document.createElement('div');
-                xMarker.className = 'axis-marker';
-                xMarker.innerHTML = value;
-                xMarker.style.color = 'rgba(255,0,0,0.7)';
-                const xMarkerObj = new THREE.CSS2DObject(xMarker);
-                xMarkerObj.position.set(i, -0.1, 0);
-                scene.add(xMarkerObj);
+                // Draw background
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
                 
-                // Y axis markers
-                const yMarker = document.createElement('div');
-                yMarker.className = 'axis-marker';
-                yMarker.innerHTML = value;
-                yMarker.style.color = 'rgba(0,255,0,0.7)';
-                const yMarkerObj = new THREE.CSS2DObject(yMarker);
-                yMarkerObj.position.set(0, i, 0);
-                scene.add(yMarkerObj);
+                // Draw text
+                ctx.font = 'bold 40px Arial';
+                ctx.fillStyle = color;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(text, canvas.width/2, canvas.height/2);
                 
-                // Z axis markers
-                const zMarker = document.createElement('div');
-                zMarker.className = 'axis-marker';
-                zMarker.innerHTML = value;
-                zMarker.style.color = 'rgba(0,0,255,0.7)';
-                const zMarkerObj = new THREE.CSS2DObject(zMarker);
-                zMarkerObj.position.set(0, -0.1, i);
-                scene.add(zMarkerObj);
+                // Create texture and sprite
+                const texture = new THREE.CanvasTexture(canvas);
+                const material = new THREE.SpriteMaterial({ map: texture });
+                const sprite = new THREE.Sprite(material);
+                sprite.position.copy(position);
+                sprite.scale.set(1, 0.5, 1);
+                scene.add(sprite);
+                
+                return sprite;
+            };
+            
+            // Add text sprites for X, Y, Z at the tips of the axes
+            createTextSprite('X', '#ff0000', new THREE.Vector3(axisLength + 0.5, 0, 0));
+            createTextSprite('Y', '#00ff00', new THREE.Vector3(0, axisLength + 0.5, 0));
+            createTextSprite('Z', '#0000ff', new THREE.Vector3(0, 0, axisLength + 0.5));
+            
+            // Still try to add CSS2D labels if available
+            if (typeof THREE.CSS2DObject === 'function') {
+                // X axis label
+                const xLabel = document.createElement('div');
+                xLabel.className = 'axis-label-3d';
+                xLabel.innerHTML = 'X';
+                xLabel.style.color = 'red';
+                xLabel.style.fontSize = '18px';  // Make larger
+                xLabel.style.fontWeight = 'bold';
+                xLabel.style.backgroundColor = 'rgba(0,0,0,0.5)';
+                xLabel.style.padding = '3px 8px';
+                const xLabelObj = new THREE.CSS2DObject(xLabel);
+                xLabelObj.position.set(axisLength + 0.5, 0, 0);
+                scene.add(xLabelObj);
+                
+                // Y axis label
+                const yLabel = document.createElement('div');
+                yLabel.className = 'axis-label-3d';
+                yLabel.innerHTML = 'Y';
+                yLabel.style.color = 'lime';
+                yLabel.style.fontSize = '18px';
+                yLabel.style.fontWeight = 'bold';
+                yLabel.style.backgroundColor = 'rgba(0,0,0,0.5)';
+                yLabel.style.padding = '3px 8px';
+                const yLabelObj = new THREE.CSS2DObject(yLabel);
+                yLabelObj.position.set(0, axisLength + 0.5, 0);
+                scene.add(yLabelObj);
+                
+                // Z axis label
+                const zLabel = document.createElement('div');
+                zLabel.className = 'axis-label-3d';
+                zLabel.innerHTML = 'Z';
+                zLabel.style.color = 'skyblue';
+                zLabel.style.fontSize = '18px';
+                zLabel.style.fontWeight = 'bold';
+                zLabel.style.backgroundColor = 'rgba(0,0,0,0.5)';
+                zLabel.style.padding = '3px 8px';
+                const zLabelObj = new THREE.CSS2DObject(zLabel);
+                zLabelObj.position.set(0, 0, axisLength + 0.5);
+                scene.add(zLabelObj);
+                
+                // Add markers at intervals along each axis
+                for (let i = 1; i <= 3; i++) {
+                    const value = i.toString();
+                    
+                    // X axis markers
+                    const xMarker = document.createElement('div');
+                    xMarker.className = 'axis-marker';
+                    xMarker.innerHTML = value;
+                    xMarker.style.color = 'rgba(255,100,100,0.9)';
+                    xMarker.style.backgroundColor = 'rgba(0,0,0,0.5)';
+                    xMarker.style.padding = '2px 4px';
+                    xMarker.style.borderRadius = '3px';
+                    const xMarkerObj = new THREE.CSS2DObject(xMarker);
+                    xMarkerObj.position.set(i, -0.2, 0);
+                    scene.add(xMarkerObj);
+                    
+                    // Y axis markers
+                    const yMarker = document.createElement('div');
+                    yMarker.className = 'axis-marker';
+                    yMarker.innerHTML = value;
+                    yMarker.style.color = 'rgba(100,255,100,0.9)';
+                    yMarker.style.backgroundColor = 'rgba(0,0,0,0.5)';
+                    yMarker.style.padding = '2px 4px';
+                    yMarker.style.borderRadius = '3px';
+                    const yMarkerObj = new THREE.CSS2DObject(yMarker);
+                    yMarkerObj.position.set(-0.2, i, 0);
+                    scene.add(yMarkerObj);
+                    
+                    // Z axis markers
+                    const zMarker = document.createElement('div');
+                    zMarker.className = 'axis-marker';
+                    zMarker.innerHTML = value;
+                    zMarker.style.color = 'rgba(100,100,255,0.9)';
+                    zMarker.style.backgroundColor = 'rgba(0,0,0,0.5)';
+                    zMarker.style.padding = '2px 4px';
+                    zMarker.style.borderRadius = '3px';
+                    const zMarkerObj = new THREE.CSS2DObject(zMarker);
+                    zMarkerObj.position.set(0, -0.2, i);
+                    scene.add(zMarkerObj);
+                }
+            } else {
+                console.warn('CSS2DRenderer not available for axis labels');
             }
         }
         
@@ -976,8 +1192,8 @@
                     throw new Error('No valid data points found');
                 }
                 
-                // Reset visualization
-                resetVisualization();
+                // Reset visualization to start position based on first data point
+                resetCubeForDirectJump(0);
                 
                 // Setup timeline slider
                 const slider = document.getElementById('timeline-slider');
@@ -986,24 +1202,16 @@
                     slider.max = currentDataPoints.length - 1;
                     slider.value = 0;
                     
-                    // Set up event listener for slider
-                    slider.addEventListener('input', function() {
-                        // Pause playback if currently playing
-                        if (isPlaying) {
-                            togglePlayback();
-                        }
-                        
-                        // Reset position when manually moving the slider
-                        resetVisualization();
-                        
-                        // Update to the selected frame
-                        currentFrame = parseInt(this.value);
-                        updateIMU3DVisualization(currentFrame);
-                    });
+                    // Remove old event listeners if any (important to prevent duplicates)
+                    slider.replaceWith(slider.cloneNode(true));
+                    
+                    // Get the fresh slider element and add event listener
+                    const newSlider = document.getElementById('timeline-slider');
+                    newSlider.addEventListener('input', handleSliderChange);
                 }
                 
-                // Update display with first frame
-                updateIMU3DVisualization(0);
+                // Current frame is now 0
+                currentFrame = 0;
                 
             } catch (error) {
                 console.error('Error parsing CSV data for 3D visualization:', error);
@@ -1011,26 +1219,111 @@
             }
         }
         
-        // Update 3D visualization with data from specific frame
-        function updateIMU3DVisualization(frameIndex) {
-            if (!currentDataPoints || frameIndex >= currentDataPoints.length || !scene) return;
+        // Handle slider change - separate function so it can be reused
+        function handleSliderChange(e) {
+            // Stop propagation to prevent default
+            e.stopPropagation();
             
-            const dataPoint = currentDataPoints[frameIndex];
+            // Pause playback if currently playing
+            if (isPlaying) {
+                togglePlayback();
+            }
             
-            // Find the container first to make sure it exists
-            const container = document.getElementById('visualization-3d-container');
-            if (!container) {
-                console.error('3D container not found');
+            // Get current value from the slider
+            const newFrame = parseInt(this.value);
+            
+            // Important: We need to reset cube position and completely 
+            // redraw it based on the selected frame
+            resetCubeForDirectJump(newFrame);
+            
+            // Update current frame
+            currentFrame = newFrame;
+            
+            // For debugging
+            console.log('Slider changed to frame:', currentFrame);
+        }
+        
+        // Reset cube for direct jumps (without animation)
+        function resetCubeForDirectJump(targetFrame) {
+            // If no data, nothing to do
+            if (!currentDataPoints || currentDataPoints.length === 0) return;
+            
+            // Clear trail
+            window.trailPositions = [];
+            
+            // For frame 0, just set position directly to first data point
+            if (targetFrame === 0) {
+                const firstDataPoint = currentDataPoints[0];
+                
+                // Apply calibration to accelerometer values of first frame
+                const initialAccX = firstDataPoint.acc_x + calibration.acc.offsetX;
+                const initialAccY = firstDataPoint.acc_y + calibration.acc.offsetY;
+                const initialAccZ = firstDataPoint.acc_z + calibration.acc.offsetZ;
+                
+                // Apply calibration to gyroscope values of first frame
+                const initialGyroX = firstDataPoint.gyro_x + calibration.gyro.offsetX;
+                const initialGyroY = firstDataPoint.gyro_y + calibration.gyro.offsetY;
+                const initialGyroZ = firstDataPoint.gyro_z + calibration.gyro.offsetZ;
+                
+                // Set initial position based on first data point
+                // Scale acceleration values to get a reasonable initial position
+                const posScale = calibration.acc.scale;
+                const initialX = initialAccX * posScale * 10; // Scale up for visibility
+                const initialY = 0.5 + (initialAccY * posScale * 10); // Keep above grid
+                const initialZ = initialAccZ * posScale * 10;
+                
+                // Set sphere position directly
+                if (sphere) {
+                    sphere.position.set(initialX, initialY, initialZ);
+                    
+                    // Set initial rotation
+                    const gyroScale = calibration.gyro.scale;
+                    sphere.rotation.x = initialGyroX * gyroScale;
+                    sphere.rotation.y = initialGyroY * gyroScale;
+                    sphere.rotation.z = initialGyroZ * gyroScale;
+                    
+                    // Add initial position to trail
+                    window.trailPositions.push(sphere.position.clone());
+                    updateTrail();
+                }
+                
+                // Update UI with the frame info
+                updateFrameInfo(0);
                 return;
             }
             
-            // Find elements within the container first
-            const frameNumberEl = document.getElementById('frame-number');
-            const currentTimeEl = document.getElementById('current-time');
-            const accXValueEl = document.getElementById('acc-x-value');
-            const accYValueEl = document.getElementById('acc-y-value');
-            const accZValueEl = document.getElementById('acc-z-value');
-            const timelineSlider = document.getElementById('timeline-slider');
+            // If jumping to a frame > 0, we need to rebuild the position data
+            
+            // Start at the initial position
+            const firstDataPoint = currentDataPoints[0];
+            
+            // Apply calibration to initial values
+            const initialAccX = firstDataPoint.acc_x + calibration.acc.offsetX;
+            const initialAccY = firstDataPoint.acc_y + calibration.acc.offsetY;
+            const initialAccZ = firstDataPoint.acc_z + calibration.acc.offsetZ;
+            
+            // Set initial position directly instead of 0,0,0
+            const posScale = calibration.acc.scale;
+            const initialX = initialAccX * posScale * 10;
+            const initialY = 0.5 + (initialAccY * posScale * 10);
+            const initialZ = initialAccZ * posScale * 10;
+            
+            if (sphere) {
+                sphere.position.set(initialX, initialY, initialZ);
+                window.trailPositions.push(sphere.position.clone());
+            }
+            
+            // Process frames 1 through targetFrame
+            for (let i = 1; i <= targetFrame; i++) {
+                processSingleFramePosition(i, i === targetFrame);
+            }
+        }
+        
+        // Process a single frame for position calculation
+        function processSingleFramePosition(frameIndex, isLastFrame) {
+            if (!currentDataPoints || frameIndex >= currentDataPoints.length || !scene) return;
+            
+            const dataPoint = currentDataPoints[frameIndex];
             
             // Apply calibration to accelerometer values
             const calibratedAccX = dataPoint.acc_x + calibration.acc.offsetX;
@@ -1042,6 +1335,91 @@
             const calibratedGyroY = dataPoint.gyro_y + calibration.gyro.offsetY;
             const calibratedGyroZ = dataPoint.gyro_z + calibration.gyro.offsetZ;
             
+            // Position the sphere based on sensor data
+            // Use accumulated accelerometer data for position
+            const posScale = calibration.acc.scale;
+            
+            // Move the sphere based on the current accelerometer values
+            sphere.position.x += calibratedAccX * posScale;
+            sphere.position.y += calibratedAccY * posScale;
+            sphere.position.z += calibratedAccZ * posScale;
+            
+            // Keep within reasonable bounds
+            sphere.position.x = Math.min(4, Math.max(-4, sphere.position.x));
+            sphere.position.y = Math.min(4, Math.max(0, sphere.position.y));
+            sphere.position.z = Math.min(4, Math.max(-4, sphere.position.z));
+            
+            // Add position to trail
+            if (window.motionTrail && window.trailPositions) {
+                window.trailPositions.push(sphere.position.clone());
+                
+                // Keep trail updated
+                updateTrail();
+            }
+            
+            // If this is the last frame to process, update the visualization
+            if (isLastFrame) {
+                // Apply gyroscope data to sphere rotation (radians)
+                const gyroScale = calibration.gyro.scale;
+                sphere.rotation.x = calibratedGyroX * gyroScale;
+                sphere.rotation.y = calibratedGyroY * gyroScale;
+                sphere.rotation.z = calibratedGyroZ * gyroScale;
+                
+                // Update UI with the frame info
+                updateFrameInfo(frameIndex);
+            }
+        }
+        
+        // Update the trail geometry
+        function updateTrail() {
+            if (!window.motionTrail || !window.trailPositions) return;
+            
+            const positions = window.motionTrail.geometry.attributes.position.array;
+            
+            // Update existing positions
+            for (let i = 0; i < window.trailPositions.length; i++) {
+                const point = window.trailPositions[i];
+                positions[i * 3] = point.x;
+                positions[i * 3 + 1] = point.y;
+                positions[i * 3 + 2] = point.z;
+            }
+            
+            // Fill the rest with the last position or zeros
+            for (let i = window.trailPositions.length; i < 300; i++) {
+                if (window.trailPositions.length > 0) {
+                    const lastPoint = window.trailPositions[window.trailPositions.length - 1];
+                    positions[i * 3] = lastPoint.x;
+                    positions[i * 3 + 1] = lastPoint.y;
+                    positions[i * 3 + 2] = lastPoint.z;
+                } else {
+                    positions[i * 3] = 0;
+                    positions[i * 3 + 1] = 0;
+                    positions[i * 3 + 2] = 0;
+                }
+            }
+            
+            window.motionTrail.geometry.attributes.position.needsUpdate = true;
+        }
+        
+        // Update just frame info without changing position
+        function updateFrameInfo(frameIndex) {
+            if (!currentDataPoints || frameIndex >= currentDataPoints.length) return;
+            
+            const dataPoint = currentDataPoints[frameIndex];
+            
+            // Find elements to update
+            const frameNumberEl = document.getElementById('frame-number');
+            const currentTimeEl = document.getElementById('current-time');
+            const accXValueEl = document.getElementById('acc-x-value');
+            const accYValueEl = document.getElementById('acc-y-value');
+            const accZValueEl = document.getElementById('acc-z-value');
+            const timelineSlider = document.getElementById('timeline-slider');
+            
+            // Calculate calibrated values
+            const calibratedAccX = dataPoint.acc_x + calibration.acc.offsetX;
+            const calibratedAccY = dataPoint.acc_y + calibration.acc.offsetY;
+            const calibratedAccZ = dataPoint.acc_z + calibration.acc.offsetZ;
+            
             // Update UI elements if they exist
             if (frameNumberEl) frameNumberEl.textContent = frameIndex;
             if (currentTimeEl) currentTimeEl.textContent = dataPoint.timestamp;
@@ -1049,8 +1427,40 @@
             if (accYValueEl) accYValueEl.textContent = calibratedAccY.toFixed(2);
             if (accZValueEl) accZValueEl.textContent = calibratedAccZ.toFixed(2);
             
-            // Update timeline slider
-            if (timelineSlider) timelineSlider.value = frameIndex;
+            // Update timeline slider value if needed
+            if (timelineSlider && parseInt(timelineSlider.value) !== frameIndex) {
+                timelineSlider.value = frameIndex;
+            }
+            
+            // Update timeframe navigation display
+            updateTimeframeNav(frameIndex);
+        }
+        
+        // Update 3D visualization with data from specific frame
+        function updateIMU3DVisualization(frameIndex) {
+            if (!currentDataPoints || frameIndex >= currentDataPoints.length || !scene) return;
+            
+            const dataPoint = currentDataPoints[frameIndex];
+            
+            // Find the container
+            const container = document.getElementById('visualization-3d-container');
+            if (!container) {
+                console.error('3D container not found');
+                return;
+            }
+            
+            // Apply calibration to accelerometer values
+            const calibratedAccX = dataPoint.acc_x + calibration.acc.offsetX;
+            const calibratedAccY = dataPoint.acc_y + calibration.acc.offsetY;
+            const calibratedAccZ = dataPoint.acc_z + calibration.acc.offsetZ;
+            
+            // Apply calibration to gyroscope values
+            const calibratedGyroX = dataPoint.gyro_x + calibration.gyro.offsetX;
+            const calibratedGyroY = dataPoint.gyro_y + calibration.gyro.offsetY;
+            const calibratedGyroZ = dataPoint.gyro_z + calibration.gyro.offsetZ;
+            
+            // Update frame info display
+            updateFrameInfo(frameIndex);
             
             // Only update the 3D scene if it exists
             if (sphere && sphere.userData && sphere.userData.arrows) {
@@ -1069,8 +1479,7 @@
                 arrows.accZ.setDirection(new THREE.Vector3(0, 0, Math.sign(calibratedAccZ)));
                 
                 // Position the sphere based on sensor data
-                // Use accumulated accelerometer data for position (Simple integration)
-                const posScale = calibration.acc.scale; // Scale for position to make movement visible
+                const posScale = calibration.acc.scale;
                 
                 // Move the sphere based on the current accelerometer values
                 sphere.position.x += calibratedAccX * posScale;
@@ -1087,35 +1496,8 @@
                     // Add current position to trail
                     window.trailPositions.push(sphere.position.clone());
                     
-                    // Keep only the last 300 positions
-                    if (window.trailPositions.length > 300) {
-                        window.trailPositions.shift();
-                    }
-                    
-                    // Update the trail geometry
-                    const positions = window.motionTrail.geometry.attributes.position.array;
-                    for (let i = 0; i < window.trailPositions.length; i++) {
-                        const point = window.trailPositions[i];
-                        positions[i * 3] = point.x;
-                        positions[i * 3 + 1] = point.y;
-                        positions[i * 3 + 2] = point.z;
-                    }
-                    
-                    // Fill the rest with the last position or zeros
-                    for (let i = window.trailPositions.length; i < 300; i++) {
-                        if (window.trailPositions.length > 0) {
-                            const lastPoint = window.trailPositions[window.trailPositions.length - 1];
-                            positions[i * 3] = lastPoint.x;
-                            positions[i * 3 + 1] = lastPoint.y;
-                            positions[i * 3 + 2] = lastPoint.z;
-                        } else {
-                            positions[i * 3] = 0;
-                            positions[i * 3 + 1] = 0;
-                            positions[i * 3 + 2] = 0;
-                        }
-                    }
-                    
-                    window.motionTrail.geometry.attributes.position.needsUpdate = true;
+                    // Update the trail
+                    updateTrail();
                 }
                 
                 // Apply gyroscope data to sphere rotation (radians)
@@ -1128,21 +1510,23 @@
         
         // Reset the visualization to the initial state
         function resetVisualization() {
-            // Reset sphere position
-            if (sphere) {
-                sphere.position.set(0, 0.5, 0);
+            // If there's no data, reset to default position
+            if (!currentDataPoints || currentDataPoints.length === 0) {
+                if (sphere) {
+                    sphere.position.set(0, 0.5, 0);
+                }
+                
+                // Clear trail
+                window.trailPositions = [];
+                updateTrail();
+                return;
             }
             
-            // Clear trail
-            window.trailPositions = [];
+            // Reset to first frame position instead of 0,0,0
+            resetCubeForDirectJump(0);
             
-            // Reset to first frame
+            // Set current frame to 0
             currentFrame = 0;
-            
-            // Update visualization with the first frame
-            if (currentDataPoints && currentDataPoints.length > 0) {
-                updateIMU3DVisualization(0);
-            }
         }
         
         // Play animation through the frames
@@ -1174,6 +1558,71 @@
             setTimeout(playAnimation, 33);
         }
         
+        // Update the timeframe navigation display
+        function updateTimeframeNav(currentIndex) {
+            const container = document.getElementById('timeframe-rows');
+            if (!container || !currentDataPoints) return;
+            
+            // Clear previous content
+            container.innerHTML = '';
+            
+            // Calculate range of frames to display (3 before and 3 after current)
+            const startIdx = Math.max(0, currentIndex - 3);
+            const endIdx = Math.min(currentDataPoints.length - 1, currentIndex + 3);
+            
+            // Create rows for each frame in range
+            for (let i = startIdx; i <= endIdx; i++) {
+                const dataPoint = currentDataPoints[i];
+                if (!dataPoint) continue;
+                
+                // Apply calibration to values
+                const calibratedAccX = (dataPoint.acc_x + calibration.acc.offsetX).toFixed(2);
+                const calibratedAccY = (dataPoint.acc_y + calibration.acc.offsetY).toFixed(2);
+                const calibratedAccZ = (dataPoint.acc_z + calibration.acc.offsetZ).toFixed(2);
+                
+                const calibratedGyroX = (dataPoint.gyro_x + calibration.gyro.offsetX).toFixed(2);
+                const calibratedGyroY = (dataPoint.gyro_y + calibration.gyro.offsetY).toFixed(2);
+                const calibratedGyroZ = (dataPoint.gyro_z + calibration.gyro.offsetZ).toFixed(2);
+                
+                // Create row element
+                const row = document.createElement('div');
+                row.className = `timeframe-row ${i === currentIndex ? 'current' : ''}`;
+                row.innerHTML = `
+                    <div class="frame-index">${i}:</div>
+                    <div class="frame-time">${dataPoint.timestamp} ms</div>
+                    <div class="frame-data">
+                        <div class="acc-value">
+                            <span class="data-label">Acc:</span>
+                            <span class="data-x">${calibratedAccX}</span><span class="data-separator">,</span>
+                            <span class="data-y">${calibratedAccY}</span><span class="data-separator">,</span>
+                            <span class="data-z">${calibratedAccZ}</span>
+                        </div>
+                        <div class="gyro-value">
+                            <span class="data-label">Gyro:</span>
+                            <span class="data-x">${calibratedGyroX}</span><span class="data-separator">,</span>
+                            <span class="data-y">${calibratedGyroY}</span><span class="data-separator">,</span>
+                            <span class="data-z">${calibratedGyroZ}</span>
+                        </div>
+                    </div>
+                `;
+                
+                // Make non-current rows clickable to navigate to that frame
+                if (i !== currentIndex) {
+                    row.style.cursor = 'pointer';
+                    row.addEventListener('click', () => {
+                        // Pause playback if currently playing
+                        if (isPlaying) {
+                            togglePlayback();
+                        }
+                        currentFrame = i;
+                        updateIMU3DVisualization(i);
+                    });
+                }
+                
+                container.appendChild(row);
+            }
+        }
+        
         // Initialize event listeners for 3D visualization
         function init3DControls() {
             // Add event listener for reset button
@@ -1186,6 +1635,26 @@
             const playButton = document.getElementById('play-button');
             if (playButton) {
                 playButton.addEventListener('click', togglePlayback);
+            }
+            
+            // Add proper event listener for timeline slider
+            const slider = document.getElementById('timeline-slider');
+            if (slider) {
+                // Remove existing listeners if any
+                const newSlider = slider.cloneNode(true);
+                slider.parentNode.replaceChild(newSlider, slider);
+                
+                // Add multiple event types to ensure it works across browsers
+                newSlider.addEventListener('input', handleSliderChange);
+                newSlider.addEventListener('change', handleSliderChange);
+                
+                // For touch devices
+                newSlider.addEventListener('touchmove', function(e) {
+                    e.stopPropagation();
+                });
+                
+                // For debugging
+                console.log('Timeline slider event listeners initialized');
             }
         }
     </script>
