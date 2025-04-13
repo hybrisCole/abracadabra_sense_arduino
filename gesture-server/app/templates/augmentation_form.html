@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gesture Data Augmentation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="number"], textarea {
+            padding: 8px;
+            width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        textarea {
+            font-family: monospace;
+            min-height: 150px;
+            resize: vertical;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .info {
+            background-color: #f8f9fa;
+            border-left: 4px solid #17a2b8;
+            padding: 10px;
+            margin-bottom: 15px;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        #response {
+            display: none;
+            margin-top: 30px;
+        }
+        .dataset-list {
+            margin-top: 20px;
+        }
+        .dataset-item {
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .dataset-item.original {
+            border-left: 4px solid #28a745;
+        }
+        .dataset-item.augmented {
+            border-left: 4px solid #007bff;
+        }
+        .add-dataset {
+            margin-top: 10px;
+        }
+        .dataset-container {
+            position: relative;
+            margin-bottom: 20px;
+        }
+        .remove-dataset {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Gesture Data Augmentation</h1>
+    <p>Use this form to generate synthetic variations of your gesture data using advanced augmentation techniques.</p>
+    
+    <div class="info">
+        <p><strong>Note:</strong> You can provide 1-10 CSV datasets and generate up to 20 variations of each. The system will automatically add headers if your data doesn't include them.</p>
+        <p>Augmentation techniques include:</p>
+        <ul>
+            <li>Noise addition (simulates sensor noise)</li>
+            <li>Time warping (simulates performing the gesture at varying speeds)</li>
+            <li>Magnitude scaling (simulates different intensities)</li>
+            <li>Rotation (simulates slight orientation changes)</li>
+            <li>Selective filtering (simulates different movement fluidity)</li>
+        </ul>
+    </div>
+    
+    <div id="augmentation-form">
+        <div class="form-group">
+            <label for="gesture_name">Gesture Name:</label>
+            <input type="text" id="gesture_name" name="gesture_name" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="variations">Variations per original:</label>
+            <input type="number" id="variations" name="variations" min="1" max="20" value="5" required>
+        </div>
+        
+        <div id="datasets-container">
+            <h2>CSV Datasets</h2>
+            
+            <div class="dataset-container" id="dataset-1">
+                <div class="form-group">
+                    <label for="csv_data_1">CSV Data 1:</label>
+                    <textarea id="csv_data_1" class="csv-data" placeholder="Paste CSV data here..." required>timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z
+...</textarea>
+                </div>
+            </div>
+
+            <div class="dataset-container" id="dataset-2">
+                <button class="remove-dataset" onclick="removeDataset(2)">Remove</button>
+                <div class="form-group">
+                    <label for="csv_data_2">CSV Data 2:</label>
+                    <textarea id="csv_data_2" class="csv-data" placeholder="Paste CSV data here..." required>timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z
+...</textarea>
+                </div>
+            </div>
+
+            <div class="dataset-container" id="dataset-3">
+                <button class="remove-dataset" onclick="removeDataset(3)">Remove</button>
+                <div class="form-group">
+                    <label for="csv_data_3">CSV Data 3:</label>
+                    <textarea id="csv_data_3" class="csv-data" placeholder="Paste CSV data here..." required>timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z
+...</textarea>
+                </div>
+            </div>
+        </div>
+        
+        <div class="add-dataset">
+            <button type="button" onclick="addDataset()">+ Add Another Dataset</button>
+        </div>
+        
+        <div class="form-group">
+            <button type="button" onclick="submitForm()">Generate Augmented Datasets</button>
+        </div>
+    </div>
+    
+    <div id="response">
+        <h2>Augmentation Results</h2>
+        <div class="info">
+            <p><strong>Summary:</strong> <span id="summary-text"></span></p>
+        </div>
+        
+        <div id="datasets-list" class="dataset-list">
+            <!-- Datasets will be added here dynamically -->
+        </div>
+    </div>
+    
+    <script>
+        let datasetCount = 3;
+        
+        function addDataset() {
+            if (datasetCount >= 10) {
+                alert('Maximum of 10 datasets allowed');
+                return;
+            }
+            
+            datasetCount++;
+            
+            const container = document.createElement('div');
+            container.className = 'dataset-container';
+            container.id = `dataset-${datasetCount}`;
+            
+            const removeButton = document.createElement('button');
+            removeButton.className = 'remove-dataset';
+            removeButton.textContent = 'Remove';
+            removeButton.onclick = function() { removeDataset(datasetCount); };
+            
+            const formGroup = document.createElement('div');
+            formGroup.className = 'form-group';
+            
+            const label = document.createElement('label');
+            label.htmlFor = `csv_data_${datasetCount}`;
+            label.textContent = `CSV Data ${datasetCount}:`;
+            
+            const textarea = document.createElement('textarea');
+            textarea.id = `csv_data_${datasetCount}`;
+            textarea.className = 'csv-data';
+            textarea.placeholder = 'Paste CSV data here...';
+            textarea.required = true;
+            textarea.value = 'timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z\n...';
+            
+            formGroup.appendChild(label);
+            formGroup.appendChild(textarea);
+            
+            container.appendChild(removeButton);
+            container.appendChild(formGroup);
+            
+            document.getElementById('datasets-container').appendChild(container);
+        }
+        
+        function removeDataset(id) {
+            if (datasetCount <= 1) {
+                alert('You need at least one dataset');
+                return;
+            }
+            
+            const element = document.getElementById(`dataset-${id}`);
+            element.remove();
+        }
+        
+        function submitForm() {
+            // Collect data from form
+            const gestureName = document.getElementById('gesture_name').value;
+            const variations = parseInt(document.getElementById('variations').value);
+            
+            if (!gestureName) {
+                alert('Please enter a gesture name');
+                return;
+            }
+            
+            if (isNaN(variations) || variations < 1 || variations > 20) {
+                alert('Variations must be between 1 and 20');
+                return;
+            }
+            
+            // Collect CSV data
+            const csvData = [];
+            const textareas = document.querySelectorAll('.csv-data');
+            
+            for (const textarea of textareas) {
+                if (textarea.value.trim()) {
+                    csvData.push(textarea.value);
+                }
+            }
+            
+            if (csvData.length === 0) {
+                alert('Please provide at least one CSV dataset');
+                return;
+            }
+            
+            // Create request payload
+            const payload = {
+                gesture_name: gestureName,
+                csv_data: csvData,
+                variations_per_original: variations
+            };
+            
+            // Show loading state
+            document.querySelector('button[onclick="submitForm()"]').disabled = true;
+            document.querySelector('button[onclick="submitForm()"]').textContent = 'Generating...';
+            
+            // Make API request
+            fetch('/gestures/augment', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload),
+                redirect: 'follow' // Allow redirects
+            })
+            .then(response => {
+                if (!response.ok && !response.redirected) {
+                    return response.json().then(err => { throw err; });
+                }
+                if (response.redirected) {
+                    // Simply follow the redirect
+                    window.location.href = response.url;
+                    return;
+                }
+                return response.json();
+            })
+            .then(data => {
+                displayResponse(data);
+                // Reset button state only if we get to this point
+                document.querySelector('button[onclick="submitForm()"]').disabled = false;
+                document.querySelector('button[onclick="submitForm()"]').textContent = 'Generate Augmented Datasets';
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert(`Error: ${error.detail || 'Failed to augment gesture data'}`);
+                // Reset button state
+                document.querySelector('button[onclick="submitForm()"]').disabled = false;
+                document.querySelector('button[onclick="submitForm()"]').textContent = 'Generate Augmented Datasets';
+            });
+        }
+        
+        function displayResponse(data) {
+            // Show response section
+            document.getElementById('response').style.display = 'block';
+            
+            // Update summary
+            document.getElementById('summary-text').textContent = 
+                `Generated ${data.generated_count} variations from ${data.original_count} original datasets for gesture "${data.gesture_name}"`;
+            
+            // Clear previous datasets
+            const datasetsList = document.getElementById('datasets-list');
+            datasetsList.innerHTML = '';
+            
+            // Add datasets
+            data.datasets.forEach(dataset => {
+                const datasetElement = document.createElement('div');
+                datasetElement.className = `dataset-item ${dataset.is_original ? 'original' : 'augmented'}`;
+                
+                const title = document.createElement('h3');
+                title.textContent = `${dataset.type.charAt(0).toUpperCase() + dataset.type.slice(1)} Dataset #${dataset.dataset_id}`;
+                
+                const info = document.createElement('p');
+                info.textContent = `Rows: ${dataset.row_count}`;
+                
+                const preview = document.createElement('pre');
+                preview.textContent = dataset.csv_data;
+                
+                datasetElement.appendChild(title);
+                datasetElement.appendChild(info);
+                datasetElement.appendChild(preview);
+                
+                datasetsList.appendChild(datasetElement);
+            });
+            
+            // Scroll to response
+            document.getElementById('response').scrollIntoView({ behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html> 

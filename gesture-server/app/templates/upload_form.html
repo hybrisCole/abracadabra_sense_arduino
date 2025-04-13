@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gesture CSV Upload</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], textarea {
+            padding: 8px;
+            width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        textarea {
+            font-family: monospace;
+            min-height: 150px;
+            resize: vertical;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .info {
+            background-color: #f8f9fa;
+            border-left: 4px solid #17a2b8;
+            padding: 10px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Submit Gesture CSV Data</h1>
+    <p>Please paste the CSV data for training (3 separate datasets)</p>
+    
+    <div class="info">
+        <p><strong>Note:</strong> Please ensure your data has headers. If your data doesn't include headers, add this line at the top of each CSV dataset:</p>
+        <code>timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z</code>
+    </div>
+    
+    <form action="/gestures/record" method="post">
+        <div class="form-group">
+            <label for="gesture_name">Gesture Name:</label>
+            <input type="text" id="gesture_name" name="gesture_name" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="csv_data1">CSV Data 1:</label>
+            <textarea id="csv_data1" name="csv_data1" placeholder="Paste CSV data here..." required>timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z
+20,-0.9846,-0.8653,7.7302,-72.6081,12.0250,-28.9870
+...</textarea>
+        </div>
+        
+        <div class="form-group">
+            <label for="csv_data2">CSV Data 2:</label>
+            <textarea id="csv_data2" name="csv_data2" placeholder="Paste CSV data here..." required>timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z
+...</textarea>
+        </div>
+        
+        <div class="form-group">
+            <label for="csv_data3">CSV Data 3:</label>
+            <textarea id="csv_data3" name="csv_data3" placeholder="Paste CSV data here..." required>timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z
+...</textarea>
+        </div>
+        
+        <button type="submit">Submit Data</button>
+    </form>
+</body>
+</html> 
