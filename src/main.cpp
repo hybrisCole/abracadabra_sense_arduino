@@ -30,9 +30,6 @@ bool ignoreTaps = false;
 bool isRecording = false;
 unsigned long recordingStartTime = 0;
 #define RECORDING_DURATION 4000   // Recording window duration in ms (4 seconds)
-#define STABILIZATION_TIME 5000   // Stabilization time before recording (5 seconds)
-#define MOTION_THRESHOLD 0.45     // Maximum allowed motion during pre-recording check (increased to be more tolerant)
-bool skipStabilityCheck = false;  // Flag to skip stability check if device is too sensitive
 
 // Sampling configuration
 #define SAMPLE_RATE_MS 20  // Sample every 20ms (approximately 50Hz)
@@ -100,11 +97,10 @@ bool imuNoiseCalibrated = false;
 float compareGestures(GestureData* gesture1, GestureData* gesture2);
 float compareAxis(float* series1, int len1, float* series2, int len2);
 float calculateSimilarity(float distance);
-bool checkDeviceStability();
-void performStabilization();
 void showRecordingProgress(unsigned long elapsedTime);
 void updateProgressLED(unsigned long elapsedTime);
 void calibrateAccelerometerNoise();
+void processGestureData(GestureData* gesture);
 
 // Calculate the magnitude of acceleration vectors
 float calculateAccMagnitude(float x, float y, float z) {
@@ -423,6 +419,55 @@ void calibrateGyroscope() {
   setLEDColor(true, false, false);  // Back to red (waiting state)
 }
 
+// Calibrate accelerometer noise floor
+void calibrateAccelerometerNoise() {
+  Serial.println("\nCalibrating accelerometer noise floor...");
+  Serial.println("Keep the device still for 3 seconds");
+  
+  // Visual indicator that calibration is starting
+  setLEDColor(true, false, true);  // Purple LED during calibration
+  
+  // Wait a moment for the device to settle
+  delay(500);
+  
+  // Variables for averaging
+  float sumAccX = 0, sumAccY = 0, sumAccZ = 0;
+  const int numSamples = 150;  // 150 samples at 50Hz = 3 seconds
+  
+  // Collect samples
+  for (int i = 0; i < numSamples; i++) {
+    sumAccX += imu.readFloatAccelX();
+    sumAccY += imu.readFloatAccelY();
+    sumAccZ += imu.readFloatAccelZ();
+    
+    // Blink LED occasionally to show progress
+    if (i % 50 == 0) {
+      setLEDColor(false, false, false);  // Off
+      delay(50);
+      setLEDColor(true, false, true);    // Purple
+    }
+    
+    delay(20);  // Sample at 50Hz
+  }
+  
+  // Calculate average offsets - remove gravity from Z
+  noiseFloorAccX = sumAccX / numSamples;
+  noiseFloorAccY = sumAccY / numSamples;
+  noiseFloorAccZ = sumAccZ / numSamples - 1.0; // Approximate correction for gravity
+  
+  // Mark as calibrated
+  imuNoiseCalibrated = true;
+  
+  // Print calibration results
+  Serial.println("Accelerometer noise floor calibration complete");
+  Serial.print("X-axis noise: "); Serial.println(noiseFloorAccX, 4);
+  Serial.print("Y-axis noise: "); Serial.println(noiseFloorAccY, 4);
+  Serial.print("Z-axis noise (gravity compensated): "); Serial.println(noiseFloorAccZ, 4);
+  
+  // Visual indicator that calibration is complete
+  setLEDColor(true, false, false);  // Back to red (waiting state)
+}
+
 // Apply thresholding to sensor data to ignore small movements
 float applyThreshold(float value, float threshold) {
   return (abs(value) < threshold) ? 0.0 : value;
@@ -496,263 +541,97 @@ void printRecordingMetadata() {
   Serial.println("------------------------------");
 }
 
-// Perform sensor stabilization only - no separate warmup phase
-void performStabilization() {
-  Serial.println("Stabilizing sensors for 5 seconds...");
+// Replace showRecordingProgress with updateProgressLED that only changes the LED color
+void updateProgressLED(unsigned long elapsedTime) {
+  // Calculate progress percentage
+  int progressPercent = (elapsedTime * 100) / RECORDING_DURATION;
+  progressPercent = constrain(progressPercent, 0, 100);
   
-  // Yellow LED during stabilization
-  setLEDColor(true, true, false); 
-  
-  // Main stabilization period
-  unsigned long stabilizationStartTime = millis();
-  int sampleIndex = 0;
-  
-  while (millis() - stabilizationStartTime < STABILIZATION_TIME) {
-    // Continue reading but not processing data
-    float accX = imu.readFloatAccelX();
-    float accY = imu.readFloatAccelY();
-    float accZ = imu.readFloatAccelZ();
-    
-    float gyroX = imu.readFloatGyroX() - gyroXoffset;
-    float gyroY = imu.readFloatGyroY() - gyroYoffset;
-    float gyroZ = imu.readFloatGyroZ() - gyroZoffset;
-    
-    // Apply calibration offsets if available
-    if (imuNoiseCalibrated) {
-      accX -= noiseFloorAccX;
-      accY -= noiseFloorAccY;
-      accZ -= noiseFloorAccZ;
-    }
-    
-    delay(20); // Brief delay between samples (50Hz)
-    
-    // Show progress feedback
-    sampleIndex++;
-    if (sampleIndex % 25 == 0) {  // Every ~500ms
-      // Update progress percentage
-      unsigned long elapsedTime = millis() - stabilizationStartTime;
-      int percent = (elapsedTime * 100) / STABILIZATION_TIME;
-      
-      // Flash LED briefly
-      ledOff();
-      delay(30);
-      setLEDColor(true, true, false); // Yellow
-      
-      // Print progress
-      Serial.print("Stabilizing: ");
-      Serial.print(percent);
-      Serial.println("%");
-      
-      if (sampleIndex % 100 == 0) {
-        // Print current values every ~2 seconds
-        Serial.print("Current values - Acc: (");
-        Serial.print(accX, 4); Serial.print(", ");
-        Serial.print(accY, 4); Serial.print(", ");
-        Serial.print(accZ, 4); Serial.print(") Gyro: (");
-        Serial.print(gyroX, 4); Serial.print(", ");
-        Serial.print(gyroY, 4); Serial.print(", ");
-        Serial.print(gyroZ, 4); Serial.println(")");
-      }
-    }
+  // Change LED color intensity based on progress without printing to serial
+  if (progressPercent < 50) {
+    // Fade from green to yellow as we approach 50%
+    int redIntensity = map(progressPercent, 0, 50, 0, 1);
+    setLEDColor(redIntensity, true, false);
+  } else {
+    // Fade from yellow to red as we approach 100%
+    int greenIntensity = map(progressPercent, 50, 100, 1, 0);
+    setLEDColor(true, greenIntensity, false);
   }
-  
-  // NOW we're ready for real recording
-  Serial.println("NOW BEGIN YOUR GESTURE!");
-  Serial.println("Recording started");
-  setLEDColor(false, true, false); // Green - recording starts
 }
 
-// Handle double tap detection - now manages recording window
-void handleDoubleTap() {
-  Serial.println("*** DOUBLE TAP DETECTED! ***");
-
-  // Set flag to ignore taps during gesture recording
-  ignoreTaps = true;
+// Add the progress indicator function before recording starts
+void showRecordingProgress(unsigned long elapsedTime) {
+  // Calculate progress percentage
+  int progressPercent = (elapsedTime * 100) / RECORDING_DURATION;
+  progressPercent = constrain(progressPercent, 0, 100);
   
-  // Flash LED to indicate detected double tap
-  for (int i = 0; i < 2; i++) {
-    ledOff();
-    delay(75);
-    setLEDColor(true, true, true); // White flash
-    delay(75);
-  }
-  ledOff();
+  // Display progress bar in serial monitor
+  Serial.print("\rRecording: [");
   
-  // Add delay before starting recording to avoid accidental motion
-  Serial.println("Preparing to record in 350ms...");
-  delay(350);  // 350ms pause before starting recording
-  
-  // Check if device is stable enough to start recording with improved thresholds
-  if (!checkDeviceStability()) {
-    Serial.println("Too much motion detected! Please hold the device still.");
-    // Flash red LED to indicate error
-    for (int i = 0; i < 3; i++) {
-      setLEDColor(true, false, false); // Red
-      delay(100);
-      ledOff();
-      delay(100);
+  // Print progress bar
+  for (int i = 0; i < 20; i++) {
+    if (i < progressPercent / 5) {
+      Serial.print("=");
+    } else {
+      Serial.print(" ");
     }
-    ignoreTaps = false;
+  }
+  
+  Serial.print("] ");
+  Serial.print(progressPercent);
+  Serial.print("% (");
+  Serial.print(elapsedTime / 1000);
+  Serial.print(".0s / ");
+  Serial.print(RECORDING_DURATION / 1000);
+  Serial.print(".0s)");
+}
+
+// Process recorded gesture data - filtering, normalization, etc.
+void processGestureData(GestureData* gesture) {
+  // Ensure valid data
+  if (gesture->sampleCount < 10) {
+    Serial.println("Warning: Gesture too short, may be invalid");
     return;
   }
   
-  // Different behavior based on current state
-  if (inTrainingMode) {
-    // We're in training data collection mode
-    Serial.print("Recording TRAINING data for gesture: ");
-    Serial.print(gestureNames[currentGestureID]);
-    Serial.print(" (ID: ");
-    Serial.print(currentGestureID);
-    Serial.print(", repetition ");
-    Serial.print(repetitionCount + 1);
-    Serial.println(")");
-    
-    // Stabilization before recording
-    performStabilization();
-    
-    // Start recording window
-    isRecording = true;
-    recordingStartTime = millis();
-    sampleCount = 0;
-    
-    // Reset current gesture data
-    currentGesture.isActive = true;
-    currentGesture.sampleCount = 0;
-    currentGesture.gestureID = currentGestureID;
-    currentGesture.repetition = repetitionCount + 1;
-    
-    // Print metadata and CSV header for the data
-    printRecordingMetadata();
-    Serial.println("\nRECORDING STARTED - 4 second window");
-    Serial.println("gesture_id,repetition,timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z");
-    
-    // Set LED to green during recording
-    setLEDColor(false, true, false);
-  }
-  else if (!inComparisonMode) {
-    // We're in reference recording mode
-    Serial.print("Recording REFERENCE gesture #");
-    Serial.println(currentReferenceIndex + 1);
-    
-    // Stabilization before recording
-    performStabilization();
-    
-    // Start recording window
-    isRecording = true;
-    recordingStartTime = millis();
-    sampleCount = 0;
-    
-    // Reset current gesture data
-    currentGesture.isActive = true;
-    currentGesture.sampleCount = 0;
-    currentGesture.gestureID = currentReferenceIndex;
-    currentGesture.repetition = 1;
-    
-    // Print metadata and CSV header for the data
-    printRecordingMetadata();
-    Serial.println("\nRECORDING STARTED - 4 second window");
-    Serial.println("timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z");
-    
-    // Set LED to green during recording
-    setLEDColor(false, true, false);
-  } 
-  else {
-    // We're in comparison mode
-    Serial.println("Comparing gesture to references...");
-    
-    // Stabilization before recording
-    performStabilization();
-    
-    // Start recording window for comparison
-    isRecording = true;
-    recordingStartTime = millis();
-    sampleCount = 0;
-    
-    // Reset current gesture data
-    currentGesture.isActive = true;
-    currentGesture.sampleCount = 0;
-    currentGesture.gestureID = -1; // Unknown for comparison
-    currentGesture.repetition = 0;
-    
-    // Print metadata and CSV header for the data
-    printRecordingMetadata();
-    Serial.println("\nCOMPARING GESTURE - 4 second window");
-    Serial.println("timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z");
-    
-    // Set LED to purple during comparison recording
-    setLEDColor(true, false, true);
-  }
-}
-
-// Check if device is stable enough to start recording
-bool checkDeviceStability() {
-  // Skip check if configured to do so
-  if (skipStabilityCheck) {
-    Serial.println("Stability check skipped by configuration");
-    return true;
-  }
+  Serial.print("Processing gesture data (");
+  Serial.print(gesture->sampleCount);
+  Serial.println(" samples)");
   
-  Serial.println("Checking device stability...");
-  
-  // Set LED to cyan during stability check
-  setLEDColor(false, true, true);
-  
-  // Check for excessive motion over 500ms
-  const int checkDuration = 500; // ms
-  const int numSamples = 10;
-  unsigned long checkStart = millis();
-  float totalMotion = 0;
-  int sampleCount = 0;
-  float maxMotion = 0;
-  
-  // Sample the accelerometer a few times
-  for (int i = 0; i < numSamples && (millis() - checkStart < checkDuration); i++) {
-    float accX = imu.readFloatAccelX();
-    float accY = imu.readFloatAccelY();
-    float accZ = imu.readFloatAccelZ();
+  // Apply basic noise filtering
+  // This is a simple moving average filter with window size 3
+  // Only applied to gestures with sufficient samples
+  if (gesture->sampleCount > 5) {
+    float accXTemp[MAX_GESTURE_SAMPLES];
+    float accYTemp[MAX_GESTURE_SAMPLES];
+    float accZTemp[MAX_GESTURE_SAMPLES];
+    float gyroXTemp[MAX_GESTURE_SAMPLES];
+    float gyroYTemp[MAX_GESTURE_SAMPLES];
+    float gyroZTemp[MAX_GESTURE_SAMPLES];
     
-    // Apply calibration offsets if available
-    if (imuNoiseCalibrated) {
-      accX -= noiseFloorAccX;
-      accY -= noiseFloorAccY;
-      accZ -= noiseFloorAccZ;
+    // Make a copy of original data
+    memcpy(accXTemp, gesture->accX, sizeof(float) * gesture->sampleCount);
+    memcpy(accYTemp, gesture->accY, sizeof(float) * gesture->sampleCount);
+    memcpy(accZTemp, gesture->accZ, sizeof(float) * gesture->sampleCount);
+    memcpy(gyroXTemp, gesture->gyroX, sizeof(float) * gesture->sampleCount);
+    memcpy(gyroYTemp, gesture->gyroY, sizeof(float) * gesture->sampleCount);
+    memcpy(gyroZTemp, gesture->gyroZ, sizeof(float) * gesture->sampleCount);
+    
+    // Apply filter to each sample except first and last
+    for (int i = 1; i < gesture->sampleCount - 1; i++) {
+      gesture->accX[i] = (accXTemp[i-1] + accXTemp[i] + accXTemp[i+1]) / 3.0;
+      gesture->accY[i] = (accYTemp[i-1] + accYTemp[i] + accYTemp[i+1]) / 3.0;
+      gesture->accZ[i] = (accZTemp[i-1] + accZTemp[i] + accZTemp[i+1]) / 3.0;
+      gesture->gyroX[i] = (gyroXTemp[i-1] + gyroXTemp[i] + gyroXTemp[i+1]) / 3.0;
+      gesture->gyroY[i] = (gyroYTemp[i-1] + gyroYTemp[i] + gyroYTemp[i+1]) / 3.0;
+      gesture->gyroZ[i] = (gyroZTemp[i-1] + gyroZTemp[i] + gyroZTemp[i+1]) / 3.0;
     }
-    
-    // Apply thresholding to raw values - higher threshold to ignore more noise
-    float accThreshold = 0.05; // Increased from 0.02 to 0.05
-    if (abs(accX) < accThreshold) accX = 0;
-    if (abs(accY) < accThreshold) accY = 0;
-    
-    // Remove gravity component from Z
-    float zWithoutGravity = accZ - 1.0;
-    if (abs(zWithoutGravity) < accThreshold) zWithoutGravity = 0;
-    
-    // Calculate total acceleration magnitude
-    float magnitude = sqrt(sq(accX) + sq(accY) + sq(zWithoutGravity));
-    
-    // Update maximum motion
-    if (magnitude > maxMotion) {
-      maxMotion = magnitude;
-    }
-    
-    // Add to total for average
-    totalMotion += magnitude;
-    sampleCount++;
-    
-    delay(checkDuration / numSamples);
   }
   
-  // Calculate average motion
-  float avgMotion = totalMotion / sampleCount;
+  // Mark the gesture as active (valid)
+  gesture->isActive = true;
   
-  Serial.print("Average motion: ");
-  Serial.print(avgMotion, 4);
-  Serial.print(", Maximum motion: ");
-  Serial.println(maxMotion, 4);
-  
-  // More lenient stability check - use 90% of threshold for average
-  // and 100% of threshold for maximum motion
-  return avgMotion < (MOTION_THRESHOLD * 0.9) && maxMotion < MOTION_THRESHOLD;
+  Serial.println("Gesture processing complete");
 }
 
 // Record and print current sensor data
@@ -836,191 +715,109 @@ void recordSensorData() {
   lastSampleTime = currentTime;
 }
 
-// Detect the actual start of movement in a gesture
-int detectGestureStart(GestureData* gesture) {
-  // Calculate the baseline noise from the first few samples
-  float baselineAcc = 0;
-  int baselineSamples = min(10, gesture->sampleCount);
-  
-  for (int i = 0; i < baselineSamples; i++) {
-    float magnitude = sqrt(sq(gesture->accX[i]) + sq(gesture->accY[i]) + sq(gesture->accZ[i] - 1.0));
-    baselineAcc += magnitude;
-  }
-  baselineAcc /= baselineSamples;
-  
-  // Add a small buffer to baseline for more robust detection
-  float detectionThreshold = baselineAcc + MOVEMENT_THRESHOLD;
-  
-  // Look for the first significant movement above the noise floor
-  // Using a window approach for more reliable detection
-  const int windowSize = 3; // Use 3 consecutive samples to confirm movement
-  int consecutiveAboveThreshold = 0;
-  
-  for (int i = baselineSamples; i < gesture->sampleCount; i++) {
-    // Calculate magnitude of acceleration change (removing gravity from Z)
-    float accMagnitude = sqrt(sq(gesture->accX[i]) + sq(gesture->accY[i]) + sq(gesture->accZ[i] - 1.0));
-    
-    // Check if this sample is above threshold
-    if (accMagnitude > detectionThreshold) {
-      consecutiveAboveThreshold++;
-      
-      // If we have enough consecutive samples above threshold, we've found the start
-      if (consecutiveAboveThreshold >= windowSize) {
-        // Return several samples before the confirmed start to capture the beginning of the motion
-        return max(0, i - windowSize - 2);
-      }
-    } else {
-      // Reset consecutive counter
-      consecutiveAboveThreshold = 0;
-    }
-  }
-  
-  // If no clear start found, return 0
-  return 0;
-}
+// Handle double tap detection - now manages recording window
+void handleDoubleTap() {
+  Serial.println("*** DOUBLE TAP DETECTED! ***");
 
-// Process the raw gesture data for comparison
-void processGestureData(GestureData* gesture) {
-  // Only process if we have data
-  if (gesture->sampleCount == 0 || !gesture->isActive) return;
+  // Set flag to ignore taps during gesture recording
+  ignoreTaps = true;
   
-  // Step 1: Find the actual start of the gesture
-  int startIdx = detectGestureStart(gesture);
-  
-  // Step 2: If we need to shift data to the beginning
-  if (startIdx > 0) {
-    // Shift data to the beginning of the array
-    for (int i = 0; i < gesture->sampleCount - startIdx; i++) {
-      gesture->accX[i] = gesture->accX[i + startIdx];
-      gesture->accY[i] = gesture->accY[i + startIdx];
-      gesture->accZ[i] = gesture->accZ[i + startIdx];
-      gesture->gyroX[i] = gesture->gyroX[i + startIdx];
-      gesture->gyroY[i] = gesture->gyroY[i + startIdx];
-      gesture->gyroZ[i] = gesture->gyroZ[i + startIdx];
-    }
-    // Update sample count
-    gesture->sampleCount -= startIdx;
+  // Flash LED to indicate detected double tap
+  for (int i = 0; i < 2; i++) {
+    ledOff();
+    delay(75);
+    setLEDColor(true, true, true); // White flash
+    delay(75);
   }
+  ledOff();
   
-  // Step 3: Truncate to a maximum size if needed
-  if (gesture->sampleCount > MAX_GESTURE_SAMPLES) {
-    gesture->sampleCount = MAX_GESTURE_SAMPLES;
-  }
-}
-
-// Replace showRecordingProgress with updateProgressLED that only changes the LED color
-void updateProgressLED(unsigned long elapsedTime) {
-  // Calculate progress percentage
-  int progressPercent = (elapsedTime * 100) / RECORDING_DURATION;
-  progressPercent = constrain(progressPercent, 0, 100);
+  // Add delay before starting recording to avoid accidental motion
+  Serial.println("Preparing to record in 350ms...");
+  delay(350);  // 350ms pause before starting recording
   
-  // Change LED color intensity based on progress without printing to serial
-  if (progressPercent < 50) {
-    // Fade from green to yellow as we approach 50%
-    int redIntensity = map(progressPercent, 0, 50, 0, 1);
-    setLEDColor(redIntensity, true, false);
-  } else {
-    // Fade from yellow to red as we approach 100%
-    int greenIntensity = map(progressPercent, 50, 100, 1, 0);
-    setLEDColor(true, greenIntensity, false);
-  }
-}
-
-// Add the progress indicator function before recording starts
-void showRecordingProgress(unsigned long elapsedTime) {
-  // Calculate progress percentage
-  int progressPercent = (elapsedTime * 100) / RECORDING_DURATION;
-  progressPercent = constrain(progressPercent, 0, 100);
-  
-  // Display progress bar in serial monitor
-  Serial.print("\rRecording: [");
-  
-  // Print progress bar
-  for (int i = 0; i < 20; i++) {
-    if (i < progressPercent / 5) {
-      Serial.print("=");
-    } else {
-      Serial.print(" ");
-    }
-  }
-  
-  Serial.print("] ");
-  Serial.print(progressPercent);
-  Serial.print("% (");
-  Serial.print(elapsedTime / 1000);
-  Serial.print(".0s / ");
-  Serial.print(RECORDING_DURATION / 1000);
-  Serial.print(".0s)");
-}
-
-// Add accelerometer noise floor calibration function
-void calibrateAccelerometerNoise() {
-  Serial.println("\nCalibrating accelerometer noise floor...");
-  Serial.println("Keep the device completely still");
-  
-  // Visual indicator that calibration is starting
-  setLEDColor(false, false, true);  // Blue LED during calibration
-  
-  // Wait a moment for the device to settle
-  delay(500);
-  
-  // Variables for averaging and standard deviation
-  float sumAccX = 0, sumAccY = 0, sumAccZ = 0;
-  float sumSqAccX = 0, sumSqAccY = 0, sumSqAccZ = 0;
-  const int numSamples = 100;
-  
-  // Collect samples
-  for (int i = 0; i < numSamples; i++) {
-    float accX = imu.readFloatAccelX();
-    float accY = imu.readFloatAccelY();
-    float accZ = imu.readFloatAccelZ();
+  // Different behavior based on current state
+  if (inTrainingMode) {
+    // We're in training data collection mode
+    Serial.print("Recording TRAINING data for gesture: ");
+    Serial.print(gestureNames[currentGestureID]);
+    Serial.print(" (ID: ");
+    Serial.print(currentGestureID);
+    Serial.print(", repetition ");
+    Serial.print(repetitionCount + 1);
+    Serial.println(")");
     
-    // Accumulate for mean
-    sumAccX += accX;
-    sumAccY += accY;
-    sumAccZ += accZ;
+    // Start recording immediately
+    Serial.println("NOW BEGIN YOUR GESTURE!");
+    Serial.println("Recording started");
+    setLEDColor(false, true, false); // Green - recording starts
     
-    // Accumulate for standard deviation
-    sumSqAccX += sq(accX);
-    sumSqAccY += sq(accY);
-    sumSqAccZ += sq(accZ);
+    // Start recording window
+    isRecording = true;
+    recordingStartTime = millis();
+    sampleCount = 0;
     
-    delay(20);  // Sample at 50Hz
+    // Reset current gesture data
+    currentGesture.isActive = true;
+    currentGesture.sampleCount = 0;
+    currentGesture.gestureID = currentGestureID;
+    currentGesture.repetition = repetitionCount + 1;
+    
+    // Print metadata and CSV header for the data
+    printRecordingMetadata();
+    Serial.println("\nRECORDING STARTED - 4 second window");
+    Serial.println("gesture_id,repetition,timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z");
   }
-  
-  // Calculate mean values
-  noiseFloorAccX = sumAccX / numSamples;
-  noiseFloorAccY = sumAccY / numSamples;
-  noiseFloorAccZ = sumAccZ / numSamples;
-  
-  // Calculate standard deviations
-  float stdAccX = sqrt((sumSqAccX / numSamples) - sq(noiseFloorAccX));
-  float stdAccY = sqrt((sumSqAccY / numSamples) - sq(noiseFloorAccY));
-  float stdAccZ = sqrt((sumSqAccZ / numSamples) - sq(noiseFloorAccZ));
-  
-  // Mark as calibrated
-  imuNoiseCalibrated = true;
-  
-  // Print calibration results
-  Serial.println("Accelerometer noise floor calibration complete");
-  Serial.println("Mean noise values:");
-  Serial.print("X-axis: "); Serial.print(noiseFloorAccX, 4);
-  Serial.print(" (±"); Serial.print(stdAccX, 4); Serial.println(" std)");
-  
-  Serial.print("Y-axis: "); Serial.print(noiseFloorAccY, 4);
-  Serial.print(" (±"); Serial.print(stdAccY, 4); Serial.println(" std)");
-  
-  Serial.print("Z-axis: "); Serial.print(noiseFloorAccZ, 4);
-  Serial.print(" (±"); Serial.print(stdAccZ, 4); Serial.println(" std)");
-  
-  // Update motion threshold based on noise floor
-  float avgNoise = (stdAccX + stdAccY + stdAccZ) / 3.0;
-  float suggestedThreshold = avgNoise * 8.0;  // 8 standard deviations
-  
-  Serial.print("Suggested motion threshold: ");
-  Serial.println(suggestedThreshold, 4);
-  Serial.print("Current threshold: ");
-  Serial.println(MOTION_THRESHOLD, 4);
+  else if (!inComparisonMode) {
+    // We're in reference recording mode
+    Serial.print("Recording REFERENCE gesture #");
+    Serial.println(currentReferenceIndex + 1);
+    
+    // Start recording immediately
+    Serial.println("NOW BEGIN YOUR GESTURE!");
+    Serial.println("Recording started");
+    setLEDColor(false, true, false); // Green - recording starts
+    
+    // Start recording window
+    isRecording = true;
+    recordingStartTime = millis();
+    sampleCount = 0;
+    
+    // Reset current gesture data
+    currentGesture.isActive = true;
+    currentGesture.sampleCount = 0;
+    currentGesture.gestureID = currentReferenceIndex;
+    currentGesture.repetition = 1;
+    
+    // Print metadata and CSV header for the data
+    printRecordingMetadata();
+    Serial.println("\nRECORDING STARTED - 4 second window");
+    Serial.println("timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z");
+  } 
+  else {
+    // We're in comparison mode
+    Serial.println("Comparing gesture to references...");
+    
+    // Start recording immediately
+    Serial.println("NOW BEGIN YOUR GESTURE!");
+    Serial.println("Recording started");
+    setLEDColor(true, false, true); // Purple - comparison mode
+    
+    // Start recording window for comparison
+    isRecording = true;
+    recordingStartTime = millis();
+    sampleCount = 0;
+    
+    // Reset current gesture data
+    currentGesture.isActive = true;
+    currentGesture.sampleCount = 0;
+    currentGesture.gestureID = -1; // Unknown for comparison
+    currentGesture.repetition = 0;
+    
+    // Print metadata and CSV header for the data
+    printRecordingMetadata();
+    Serial.println("\nCOMPARING GESTURE - 4 second window");
+    Serial.println("timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z");
+  }
 }
 
 void setup() {
@@ -1034,8 +831,6 @@ void setup() {
   Serial.println("  'train' - Enter training data collection mode");
   Serial.println("  'reset' - Reset to reference gesture recording mode");
   Serial.println("  'calibrate' - Recalibrate gyroscope and noise floor");
-  Serial.println("  'skipcheck' - Disable stability check");
-  Serial.println("  'enablecheck' - Re-enable stability check");
   Serial.println("----------------------------------------------");
   
   // Initialize RGB LED pins
@@ -1279,35 +1074,6 @@ void loop() {
       calibrateAccelerometerNoise();
       
       Serial.println("Calibration complete");
-      setLEDColor(true, false, false); // Back to red (waiting state)
-    }
-    else if (command == "skipcheck") {
-      // Emergency override to skip stability check
-      skipStabilityCheck = true;
-      Serial.println("\n*** STABILITY CHECK DISABLED ***");
-      Serial.println("Warning: This may result in recordings with initial movement artifacts");
-      
-      // Blink yellow LED to indicate the change
-      for (int i = 0; i < 3; i++) {
-        setLEDColor(true, true, false); // Yellow
-        delay(200);
-        ledOff();
-        delay(200);
-      }
-      setLEDColor(true, false, false); // Back to red (waiting state)
-    }
-    else if (command == "enablecheck") {
-      // Re-enable stability check
-      skipStabilityCheck = false;
-      Serial.println("\n*** STABILITY CHECK ENABLED ***");
-      
-      // Blink cyan LED to indicate the change
-      for (int i = 0; i < 3; i++) {
-        setLEDColor(false, true, true); // Cyan
-        delay(200);
-        ledOff();
-        delay(200);
-      }
       setLEDColor(true, false, false); // Back to red (waiting state)
     }
   }
