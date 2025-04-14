@@ -384,6 +384,37 @@
         .x-color { background-color: #ff0000; }
         .y-color { background-color: #00ff00; }
         .z-color { background-color: #0000ff; }
+        .chart-selector-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .chart-type-selector, 
+        .axis-selector {
+            padding: 6px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: white;
+        }
+        .chart-legend {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-right: 10px;
+        }
+        .legend-color {
+            width: 15px;
+            height: 15px;
+            margin-right: 5px;
+            border-radius: 3px;
+        }
     </style>
 </head>
 <body>
@@ -444,82 +475,112 @@
                     </div>
                 </div>
 
-                <div class="controls">
-                    <div class="dataset-selector">
-                        <label for="3d-dataset-select">Select Dataset:</label>
-                        <select id="3d-dataset-select">
-                            <option value="">No datasets available</option>
-                        </select>
-                    </div>
-                    
-                    <div class="calibration-panel">
-                        <h3>Calibration Parameters</h3>
-                        <div class="calibration-controls">
-                            <div class="calibration-group">
-                                <h4>Accelerometer</h4>
-                                <div class="calibration-item">
-                                    <label for="acc-scale">Scale:</label>
-                                    <input type="number" id="acc-scale" min="0.01" max="2.0" step="0.01" value="0.03">
+                <div class="visualization-tabs">
+                    <button class="tab-button active" data-tab="3d-tab">3D Visualization</button>
+                    <button class="tab-button" data-tab="chart-tab">Timeline Charts</button>
+                </div>
+
+                <div class="tab-content active" id="3d-tab">
+                    <div class="controls">
+                        <div class="dataset-selector">
+                            <label for="3d-dataset-select">Select Dataset:</label>
+                            <select id="3d-dataset-select">
+                                <option value="">No datasets available</option>
+                            </select>
+                        </div>
+                        
+                        <div class="calibration-panel">
+                            <h3>Calibration Parameters</h3>
+                            <div class="calibration-controls">
+                                <div class="calibration-group">
+                                    <h4>Accelerometer</h4>
+                                    <div class="calibration-item">
+                                        <label for="acc-scale">Scale:</label>
+                                        <input type="number" id="acc-scale" min="0.01" max="2.0" step="0.01" value="0.03">
+                                    </div>
+                                    <div class="calibration-item">
+                                        <label for="acc-offset-x">Offset X:</label>
+                                        <input type="number" id="acc-offset-x" min="-2" max="2" step="0.01" value="0">
+                                    </div>
+                                    <div class="calibration-item">
+                                        <label for="acc-offset-y">Offset Y:</label>
+                                        <input type="number" id="acc-offset-y" min="-2" max="2" step="0.01" value="0">
+                                    </div>
+                                    <div class="calibration-item">
+                                        <label for="acc-offset-z">Offset Z:</label>
+                                        <input type="number" id="acc-offset-z" min="-2" max="2" step="0.01" value="0">
+                                    </div>
                                 </div>
-                                <div class="calibration-item">
-                                    <label for="acc-offset-x">Offset X:</label>
-                                    <input type="number" id="acc-offset-x" min="-2" max="2" step="0.01" value="0">
-                                </div>
-                                <div class="calibration-item">
-                                    <label for="acc-offset-y">Offset Y:</label>
-                                    <input type="number" id="acc-offset-y" min="-2" max="2" step="0.01" value="0">
-                                </div>
-                                <div class="calibration-item">
-                                    <label for="acc-offset-z">Offset Z:</label>
-                                    <input type="number" id="acc-offset-z" min="-2" max="2" step="0.01" value="0">
+                                <div class="calibration-group">
+                                    <h4>Gyroscope</h4>
+                                    <div class="calibration-item">
+                                        <label for="gyro-scale">Scale:</label>
+                                        <input type="number" id="gyro-scale" min="0.001" max="0.1" step="0.001" value="0.01">
+                                    </div>
+                                    <div class="calibration-item">
+                                        <label for="gyro-offset-x">Offset X:</label>
+                                        <input type="number" id="gyro-offset-x" min="-2" max="2" step="0.01" value="0">
+                                    </div>
+                                    <div class="calibration-item">
+                                        <label for="gyro-offset-y">Offset Y:</label>
+                                        <input type="number" id="gyro-offset-y" min="-2" max="2" step="0.01" value="0">
+                                    </div>
+                                    <div class="calibration-item">
+                                        <label for="gyro-offset-z">Offset Z:</label>
+                                        <input type="number" id="gyro-offset-z" min="-2" max="2" step="0.01" value="0">
+                                    </div>
                                 </div>
                             </div>
-                            <div class="calibration-group">
-                                <h4>Gyroscope</h4>
-                                <div class="calibration-item">
-                                    <label for="gyro-scale">Scale:</label>
-                                    <input type="number" id="gyro-scale" min="0.001" max="0.1" step="0.001" value="0.01">
-                                </div>
-                                <div class="calibration-item">
-                                    <label for="gyro-offset-x">Offset X:</label>
-                                    <input type="number" id="gyro-offset-x" min="-2" max="2" step="0.01" value="0">
-                                </div>
-                                <div class="calibration-item">
-                                    <label for="gyro-offset-y">Offset Y:</label>
-                                    <input type="number" id="gyro-offset-y" min="-2" max="2" step="0.01" value="0">
-                                </div>
-                                <div class="calibration-item">
-                                    <label for="gyro-offset-z">Offset Z:</label>
-                                    <input type="number" id="gyro-offset-z" min="-2" max="2" step="0.01" value="0">
-                                </div>
+                            <button id="apply-calibration" class="control-button">Apply</button>
+                        </div>
+                    </div>
+
+                    <div class="chart-container">
+                        <div id="visualization-3d-container">
+                            <div class="frame-info">Frame: <span id="frame-number">0</span></div>
+                            <div class="axis-label x-axis">X: <span id="acc-x-value">0</span></div>
+                            <div class="axis-label y-axis">Y: <span id="acc-y-value">0</span></div>
+                            <div class="axis-label z-axis">Z: <span id="acc-z-value">0</span></div>
+                            <div class="axis-legend">
+                                <div class="axis-legend-item"><div class="axis-legend-color x-color"></div>X-Axis</div>
+                                <div class="axis-legend-item"><div class="axis-legend-color y-color"></div>Y-Axis</div>
+                                <div class="axis-legend-item"><div class="axis-legend-color z-color"></div>Z-Axis</div>
                             </div>
                         </div>
-                        <button id="apply-calibration" class="control-button">Apply</button>
+                        <div class="timeline-controls">
+                            <button id="play-button" class="play-button">▶</button>
+                            <button id="reset-button" class="control-button">⟳</button>
+                            <div class="time-display"><span id="current-time">0</span> ms</div>
+                            <input type="range" id="timeline-slider" class="timeline-slider" min="0" value="0" max="100">
+                        </div>
+                        
+                        <!-- Timeframe Navigation Display -->
+                        <div class="timeframe-nav">
+                            <div id="timeframe-rows"></div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="chart-container">
-                    <div id="visualization-3d-container">
-                        <div class="frame-info">Frame: <span id="frame-number">0</span></div>
-                        <div class="axis-label x-axis">X: <span id="acc-x-value">0</span></div>
-                        <div class="axis-label y-axis">Y: <span id="acc-y-value">0</span></div>
-                        <div class="axis-label z-axis">Z: <span id="acc-z-value">0</span></div>
-                        <div class="axis-legend">
-                            <div class="axis-legend-item"><div class="axis-legend-color x-color"></div>X-Axis</div>
-                            <div class="axis-legend-item"><div class="axis-legend-color y-color"></div>Y-Axis</div>
-                            <div class="axis-legend-item"><div class="axis-legend-color z-color"></div>Z-Axis</div>
+                <div class="tab-content" id="chart-tab">
+                    <div class="chart-container">
+                        <div class="chart-selector-controls">
+                            <div>
+                                <label for="chart-dataset-select">Dataset:</label>
+                                <select id="chart-dataset-select" class="chart-type-selector">
+                                    <option value="">No datasets available</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="chart-type-select">Chart Type:</label>
+                                <select id="chart-type-select" class="chart-type-selector">
+                                    <option value="accelerometer">Accelerometer</option>
+                                    <option value="gyroscope">Gyroscope</option>
+                                    <option value="combined">Combined View</option>
+                                </select>
+                            </div>
                         </div>
-                    </div>
-                    <div class="timeline-controls">
-                        <button id="play-button" class="play-button">▶</button>
-                        <button id="reset-button" class="control-button">⟳</button>
-                        <div class="time-display"><span id="current-time">0</span> ms</div>
-                        <input type="range" id="timeline-slider" class="timeline-slider" min="0" value="0" max="100">
-                    </div>
-                    
-                    <!-- Timeframe Navigation Display -->
-                    <div class="timeframe-nav">
-                        <div id="timeframe-rows"></div>
+                        <canvas id="timeline-chart" height="300"></canvas>
+                        <div class="chart-legend" id="chart-legend"></div>
                     </div>
                 </div>
             </div>
@@ -536,6 +597,9 @@
         let isPlaying = false;
         let currentFrame = 0;
         let currentDataPoints = [];
+        
+        // Chart.js variables
+        let timelineChart = null;
         
         // Calibration parameters
         let calibration = {
@@ -694,6 +758,7 @@
                 // Set initial dataset
                 if (datasets.length > 0) {
                     load3DVisualizationData(0);
+                    loadChartData(0); // Also load the chart data for the first dataset
                 }
             })
             .catch(error => {
@@ -727,18 +792,39 @@
         // Populate dataset selectors
         function populateDatasetSelectors() {
             const select3D = document.getElementById('3d-dataset-select');
+            const selectChart = document.getElementById('chart-dataset-select');
+            
             select3D.innerHTML = '';
+            selectChart.innerHTML = '';
             
             datasets.forEach((dataset, index) => {
                 const option3D = document.createElement('option');
                 option3D.value = index;
                 option3D.textContent = `${dataset.type.charAt(0).toUpperCase() + dataset.type.slice(1)} ${dataset.dataset_id}`;
                 select3D.appendChild(option3D);
+                
+                const optionChart = document.createElement('option');
+                optionChart.value = index;
+                optionChart.textContent = `${dataset.type.charAt(0).toUpperCase() + dataset.type.slice(1)} ${dataset.dataset_id}`;
+                selectChart.appendChild(optionChart);
             });
             
             // Add event listener for 3D dataset selection
             select3D.addEventListener('change', (e) => {
                 load3DVisualizationData(parseInt(e.target.value));
+            });
+            
+            // Add event listener for chart dataset selection
+            selectChart.addEventListener('change', (e) => {
+                loadChartData(parseInt(e.target.value));
+            });
+            
+            // Add event listener for chart type selection
+            document.getElementById('chart-type-select').addEventListener('change', () => {
+                const datasetIndex = parseInt(selectChart.value);
+                if (!isNaN(datasetIndex)) {
+                    loadChartData(datasetIndex);
+                }
             });
         }
         
@@ -776,6 +862,30 @@
             document.getElementById('gyro-offset-x').value = calibration.gyro.offsetX;
             document.getElementById('gyro-offset-y').value = calibration.gyro.offsetY;
             document.getElementById('gyro-offset-z').value = calibration.gyro.offsetZ;
+            
+            // Set up tab switching
+            const tabButtons = document.querySelectorAll('.tab-button');
+            tabButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const tabId = button.getAttribute('data-tab');
+                    
+                    // Hide all tabs
+                    document.querySelectorAll('.tab-content').forEach(tab => {
+                        tab.classList.remove('active');
+                    });
+                    
+                    // Deactivate all buttons
+                    tabButtons.forEach(btn => {
+                        btn.classList.remove('active');
+                    });
+                    
+                    // Show selected tab
+                    document.getElementById(tabId).classList.add('active');
+                    
+                    // Activate selected button
+                    button.classList.add('active');
+                });
+            });
         });
         
         // Apply calibration settings
@@ -1656,6 +1766,216 @@
                 // For debugging
                 console.log('Timeline slider event listeners initialized');
             }
+        }
+
+        // Load dataset for chart visualization
+        async function loadChartData(index) {
+            if (!datasets[index]) {
+                console.error('Dataset not found:', index);
+                return;
+            }
+            
+            try {
+                const dataset = datasets[index];
+                const parsedData = await parseCSVData(dataset.csv_data);
+                
+                // Filter out any bad data points
+                const validData = parsedData.filter(point => 
+                    point && 
+                    typeof point.timestamp !== 'undefined' && 
+                    typeof point.acc_x !== 'undefined' && 
+                    typeof point.acc_y !== 'undefined' && 
+                    typeof point.acc_z !== 'undefined'
+                );
+                
+                if (validData.length === 0) {
+                    throw new Error('No valid data points found');
+                }
+                
+                // Get chart type
+                const chartType = document.getElementById('chart-type-select').value;
+                
+                // Create chart
+                createTimelineChart(validData, chartType);
+                
+            } catch (error) {
+                console.error('Error parsing CSV data for chart:', error);
+                alert('Failed to parse dataset for chart visualization: ' + error.message);
+            }
+        }
+        
+        // Create a timeline chart with the data
+        function createTimelineChart(data, chartType) {
+            const ctx = document.getElementById('timeline-chart').getContext('2d');
+            
+            // Destroy existing chart if it exists
+            if (timelineChart) {
+                timelineChart.destroy();
+            }
+            
+            // Extract data values
+            const timestamps = data.map(point => point.timestamp);
+            
+            // Prepare datasets based on chart type
+            const datasets = [];
+            
+            // Apply calibration to all values
+            const accDataX = data.map(point => point.acc_x + calibration.acc.offsetX);
+            const accDataY = data.map(point => point.acc_y + calibration.acc.offsetY);
+            const accDataZ = data.map(point => point.acc_z + calibration.acc.offsetZ);
+            
+            const gyroDataX = data.map(point => point.gyro_x + calibration.gyro.offsetX);
+            const gyroDataY = data.map(point => point.gyro_y + calibration.gyro.offsetY);
+            const gyroDataZ = data.map(point => point.gyro_z + calibration.gyro.offsetZ);
+            
+            if (chartType === 'accelerometer' || chartType === 'combined') {
+                datasets.push({
+                    label: 'Acc X',
+                    data: accDataX,
+                    fill: false,
+                    borderColor: 'rgb(255, 99, 132)',
+                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                    tension: 0.2,
+                    borderWidth: 2
+                });
+                
+                datasets.push({
+                    label: 'Acc Y',
+                    data: accDataY,
+                    fill: false,
+                    borderColor: 'rgb(75, 192, 192)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                    tension: 0.2,
+                    borderWidth: 2
+                });
+                
+                datasets.push({
+                    label: 'Acc Z',
+                    data: accDataZ,
+                    fill: false,
+                    borderColor: 'rgb(54, 162, 235)',
+                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                    tension: 0.2,
+                    borderWidth: 2
+                });
+            }
+            
+            if (chartType === 'gyroscope' || chartType === 'combined') {
+                datasets.push({
+                    label: 'Gyro X',
+                    data: gyroDataX,
+                    fill: false,
+                    borderColor: 'rgb(255, 159, 64)',
+                    backgroundColor: 'rgba(255, 159, 64, 0.1)',
+                    tension: 0.2,
+                    borderWidth: 2,
+                    hidden: chartType === 'combined'  // Hide by default in combined view
+                });
+                
+                datasets.push({
+                    label: 'Gyro Y',
+                    data: gyroDataY,
+                    fill: false,
+                    borderColor: 'rgb(153, 102, 255)',
+                    backgroundColor: 'rgba(153, 102, 255, 0.1)',
+                    tension: 0.2,
+                    borderWidth: 2,
+                    hidden: chartType === 'combined'  // Hide by default in combined view
+                });
+                
+                datasets.push({
+                    label: 'Gyro Z',
+                    data: gyroDataZ,
+                    fill: false,
+                    borderColor: 'rgb(201, 203, 207)',
+                    backgroundColor: 'rgba(201, 203, 207, 0.1)',
+                    tension: 0.2,
+                    borderWidth: 2,
+                    hidden: chartType === 'combined'  // Hide by default in combined view
+                });
+            }
+            
+            // Create the chart
+            timelineChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: timestamps,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Time (ms)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: chartType === 'gyroscope' ? 'Gyroscope Values' : 'Accelerometer Values'
+                            }
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: `${chartType.charAt(0).toUpperCase() + chartType.slice(1)} Data Timeline`
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${context.raw.toFixed(3)}`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Create custom legend
+            updateChartLegend(datasets);
+        }
+        
+        // Update the custom chart legend
+        function updateChartLegend(datasets) {
+            const legendContainer = document.getElementById('chart-legend');
+            legendContainer.innerHTML = '';
+            
+            datasets.forEach(dataset => {
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                
+                const colorBox = document.createElement('div');
+                colorBox.className = 'legend-color';
+                colorBox.style.backgroundColor = dataset.borderColor;
+                
+                const label = document.createElement('span');
+                label.textContent = dataset.label;
+                
+                item.appendChild(colorBox);
+                item.appendChild(label);
+                
+                // Toggle visibility when clicking on legend item
+                item.style.cursor = 'pointer';
+                item.style.opacity = dataset.hidden ? 0.5 : 1;
+                
+                item.addEventListener('click', () => {
+                    const index = timelineChart.data.datasets.findIndex(d => d.label === dataset.label);
+                    if (index !== -1) {
+                        timelineChart.data.datasets[index].hidden = !timelineChart.data.datasets[index].hidden;
+                        timelineChart.update();
+                        item.style.opacity = timelineChart.data.datasets[index].hidden ? 0.5 : 1;
+                    }
+                });
+                
+                legendContainer.appendChild(item);
+            });
         }
     </script>
 </body>
