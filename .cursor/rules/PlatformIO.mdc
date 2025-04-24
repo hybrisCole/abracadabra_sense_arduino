@@ -5,14 +5,14 @@ alwaysApply: false
 ---
 # PlatformIO Development Rules
 
-  You are a senior PlatformIO IDE developer and an expert in C++ Embedded Enngineering, Arduino framework. You are an expert in Nordic nRF52 Microcontrollers, Experience with sensor programming, Bluetooth Low Energy communication and IoT solutions in General.  
+  You are a senior PlatformIO IDE developer and an expert in C++ Embedded Engineering, Arduino framework. You are an expert in Nordic nRF52 Microcontrollers, Experience with sensor programming, Bluetooth Low Energy communication and IoT solutions in General.  
 
   ## Code Style and Structure
   - Write concise, idiomatic C++ code with concise statements.
   - Follow C++ best practices.
   - Functionality separated into logical components (sensors, utils, config, communication).
   - Each component has its own directory with related files.
-  - Efficient use of data structures for memory and computational contraints in embedded project.
+  - Efficient use of data structures for memory and computational constraints in embedded project.
   - Structure files according to C++ conventions.
 
   ## Naming Conventions
@@ -24,4 +24,88 @@ alwaysApply: false
   - Member variables: either prefixed with m_ (m_sensorValue) or suffixed with _ (sensorValue_)
   - Static variables: prefixed with s_ (s_instanceCount)
   - Global variables: prefixed with g_ (g_systemState) though generally avoided
+
+  ## IMU Sensor Implementation
+  - Use LSM6DS3 accelerometer and gyroscope for motion sensing.
+  - Configure sample rate to 100Hz (10ms intervals) for optimal gesture recognition.
+  - Apply calibration to raw sensor data to account for bias and offset errors.
+  - Set appropriate ranges for accelerometer (±16g) and gyroscope (±2000 dps).
+  - Implement low-pass filtering for noise reduction where appropriate.
+  - Record full 6-axis IMU data (3-axis accelerometer, 3-axis gyroscope).
+  - Ensure consistent timing between samples for reliable pattern matching.
+  - Implement proper sensor initialization with error checking.
+
+  ## Gesture Recording System
+  - Implement double-tap detection as a trigger for recording mode.
+  - Use first double-tap to start recording, second to stop and save.
+  - Include automatic timeout (5-10 seconds) to exit recording mode if no activity detected.
+  - Create structured data format with timing information and metadata.
+  - Use circular buffer for in-memory recording to handle variable-length gestures.
+  - Implement LED feedback to indicate recording state (active, complete, error).
+  - Store reference gestures persistently in flash memory or EEPROM.
+  - Generate unique IDs for each recording session.
+  - Store raw data in CSV format with headers: timestamp,milliseconds,gesture_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z,label
+  - Add metadata for recording duration, sample rate, and sensor configuration.
+
+  ## Authentication Framework
+  - Store 3-5 reference gestures for comparison during enrollment.
+  - Implement Dynamic Time Warping (DTW) for comparing time series data.
+  - Apply signal normalization and alignment before comparison.
+  - Implement threshold-based authentication with configurable sensitivity.
+  - Calculate similarity scores by averaging DTW distances across reference gestures.
+  - Convert distance scores to similarity percentages for user feedback.
+  - Support both enrollment and verification modes.
+  - Apply consistent filtering to both reference and new gestures.
+  - Use fixed window sizes for all recordings to ensure comparability.
+  - Implement security measures to prevent replay attacks.
+
+  ## Authentication Architecture
+  - Support on-device authentication (edge processing) for offline usage.
+  - Implement hybrid approach with local authentication and periodic server validation.
+  - Encrypt stored templates to protect biometric data.
+  - Implement liveness detection to prevent replay attacks.
+  - Use adaptive thresholds that adjust based on context.
+  - Consider power efficiency by keeping IMU in low-power mode when not recording.
+  - Apply sensor fusion techniques to combine accelerometer and gyroscope data.
+  - Measure and optimize for False Acceptance Rate (FAR) and False Rejection Rate (FRR).
+  - Implement fallback mechanisms for when authentication fails.
+
+  ## Memory Management
+  - Work within the constraints of XIAO nRF52840 (256KB RAM, 1MB flash).
+  - Use fixed-size allocations to avoid memory fragmentation.
+  - Implement compression techniques when storing multiple gestures.
+  - Add checksums for data integrity validation.
+  - Include error recovery mechanisms for interrupted recordings.
+  - Version data structures to support format evolution.
+  - Design extensible data formats to accommodate future sensors.
+
+  ## Data Visualization
+  - Use standalone HTML/JavaScript for gesture visualization.
+  - Implement 3D visualization of device motion using Three.js.
+  - Support real-time playback of recorded gestures.
+  - Include timeline controls for gesture analysis.
+  - Provide visual feedback on sensor data quality and clipping.
+  - Enable visualization of multiple gestures for comparison.
+  - Display metadata about recording sessions including sensor configuration.
+  - Allow for normalization and filtering options in visualization.
+
+  ## Bluetooth Communication
+  - Implement BLE services and characteristics for gesture data transfer.
+  - Use Nordic UART Service (NUS) for debugging and data streaming.
+  - Optimize packet size for efficient transmission of gesture data.
+  - Implement secure pairing and connection protocols.
+  - Use proper error handling for connection issues.
+  - Compress data when possible to reduce transmission times.
+  - Implement secure protocols for sending sensitive biometric data.
+  - Support both direct device-to-phone and device-to-server communication.
+
+  ## Power Management
+  - Implement power-efficient sampling strategies during idle periods.
+  - Use sleep modes between gesture recordings.
+  - Power down gyroscope when only monitoring for double taps.
+  - Optimize sensor power settings based on current mode.
+  - Monitor battery level and implement low-power warnings.
+  - Document power consumption metrics for different operating modes.
+  - Balance power consumption with sampling frequency needs.
+  - Implement staged wake-up to minimize power usage.
 
