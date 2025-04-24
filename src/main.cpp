@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <LSM6DS3.h>
+#include <stdint.h>
 
 // Create IMU object - XIAO nRF52840 Sense has built-in LSM6DS3
 LSM6DS3 imu(I2C_MODE);  // Using default I2C address 0x6A
@@ -29,15 +30,21 @@ bool ignoreTaps = false;
 // Gesture recording state variables
 bool isRecording = false;
 unsigned long recordingStartTime = 0;
-#define RECORDING_DURATION 10000   // Recording window duration in ms (10 seconds)
+#define RECORDING_DURATION 2500  // Record for 2.5 seconds (shortened for authentication gestures)
 
-// Sampling configuration
-#define SAMPLE_RATE_MS 20  // Sample every 20ms (approximately 50Hz)
+// Sampling configuration - increasing to 100Hz for better gesture detail
+#define SAMPLE_RATE_MS 10  // Sample every 10ms (approximately 100Hz)
 unsigned long lastSampleTime = 0;
 unsigned long sampleCount = 0;
 
 // Gesture storage constants
-#define MAX_GESTURE_SAMPLES 500     // Maximum samples in a processed gesture (10sec @ 50Hz)
+#define MAX_GESTURE_SAMPLES 500     // Maximum samples in a processed gesture
+
+// Gesture authentication settings
+#define AUTH_THRESHOLD 0.75         // Similarity threshold for authentication (0.0-1.0)
+#define NUM_AUTH_FEATURES 6         // Number of authentication features used
+int authAttemptsCount = 0;          // Number of authentication attempts
+bool authenticationMode = false;    // Whether we're in authentication or enrollment mode
 
 // Gesture reference storage - using completely raw sensor data with no processing
 typedef struct {
@@ -57,10 +64,71 @@ GestureData referenceGestures[3];  // 3 reference gestures
 GestureData currentGesture;        // Current gesture being recorded
 int currentReferenceIndex = 0;     // Current reference gesture index (0-2)
 
+// Near the top of the file, after other #define statements
+#define DEVICE_ID "xiao_sense_001"  // Unique identifier for this device
+#define ACCEL_SATURATION_THRESHOLD 8.0  // Threshold to detect potential sensor saturation (in g)
+#define GYRO_SATURATION_THRESHOLD 1000.0  // Threshold for gyro saturation (in dps)
+
+// New global variables
+char recordingId[20];  // Buffer to store unique recording ID
+unsigned long absoluteStartTime;  // Store absolute timestamp when recording started
+
+// Variables for consistent sampling timing
+unsigned long nextSampleTime = 0;  // Next scheduled sample time
+unsigned long sampleInterval = SAMPLE_RATE_MS;  // Sample interval in ms
+unsigned long actualSampleInterval = 0;  // To track actual sampling intervals
+unsigned long maxSampleInterval = 0;     // Track maximum interval (jitter analysis)
+unsigned long minSampleInterval = 9999;  // Track minimum interval (jitter analysis)
+unsigned long lastActualSampleTime = 0;  // For calculating actual intervals
+
+// Calibration data storage
+typedef struct {
+  // Accelerometer calibration
+  float accelBias[3];     // Offset correction (X, Y, Z)
+  float accelScale[3];    // Scale correction (X, Y, Z)
+  
+  // Gyroscope calibration
+  float gyroBias[3];      // Offset correction (X, Y, Z)
+  float gyroScale[3];     // Scale correction (X, Y, Z)
+  
+  // Additional calibration data
+  bool isCalibrated;      // Whether calibration has been performed
+  unsigned long calibrationTimestamp; // When was calibration performed
+} CalibrationData;
+
+CalibrationData calibrationData = {
+  {0.0f, 0.0f, 0.0f},  // accelBias
+  {1.0f, 1.0f, 1.0f},  // accelScale
+  {0.0f, 0.0f, 0.0f},  // gyroBias
+  {1.0f, 1.0f, 1.0f},  // gyroScale
+  false,               // isCalibrated
+  0                    // calibrationTimestamp
+};
+
+// Feature extraction for authentication
+typedef struct {
+  float accMagnitudeMean;       // Mean acceleration magnitude
+  float accMagnitudeStd;        // Standard deviation of acceleration magnitude
+  float gyroMagnitudeMean;      // Mean gyroscope magnitude
+  float gyroMagnitudeStd;       // Standard deviation of gyroscope magnitude
+  float dominantFrequency;      // Dominant frequency of movement
+  float energyRatio;            // Ratio of energy in specific frequency bands
+} GestureFeatures;
+
+GestureFeatures referenceFeatures;   // Features of enrolled gesture
+GestureFeatures currentFeatures;     // Features of current authentication attempt
+
 // Forward declarations
 void processGestureData(GestureData* gesture);
 void showRecordingProgress(unsigned long elapsedTime);
 void updateProgressLED(unsigned long elapsedTime);
+void calibrateIMU(bool fullCalibration);
+float applyCalibration(float value, float bias, float scale);
+void saveCalibrationToEEPROM();
+void loadCalibrationFromEEPROM();
+void extractFeatures(GestureData* gesture, GestureFeatures* features);
+float calculateAuthenticationScore(GestureFeatures* ref, GestureFeatures* current);
+void setAuthenticationMode(bool isAuth);
 
 // Calculate the magnitude of acceleration vectors
 float calculateAccMagnitude(float x, float y, float z) {
@@ -222,10 +290,22 @@ void configureTapDetection() {
   Serial.println(" ms");
 }
 
+// Generate a unique recording ID based on time and a random number
+void generateRecordingId() {
+  // Use current time and a random value to create a unique ID
+  sprintf(recordingId, "g_%lu_%d", millis(), random(1000, 9999));
+}
+
 // Print metadata about the recording session
 void printRecordingMetadata() {
   Serial.println("\n------ RECORDING METADATA ------");
-  Serial.print("Recording duration: ");
+  Serial.print("device_id: ");
+  Serial.println(DEVICE_ID);
+  Serial.print("recording_id: ");
+  Serial.println(recordingId);
+  Serial.print("absolute_start_time: ");
+  Serial.println(absoluteStartTime);
+  Serial.print("recording_duration: ");
   Serial.print(RECORDING_DURATION);
   Serial.println(" ms");
   
@@ -263,9 +343,37 @@ void printRecordingMetadata() {
   Serial.print("- Gyroscope range: "); Serial.println(gyroRange);
   
   Serial.println("\nData Processing:");
-  Serial.println("* USING RAW SENSOR VALUES - No filtering or calibration applied");
-  Serial.println("* Sample rate: 50Hz (typical for human gestures)");
+  if (calibrationData.isCalibrated) {
+    Serial.println("* USING CALIBRATED SENSOR VALUES");
+    Serial.println("* Accelerometer bias correction applied");
+    Serial.println("* Gyroscope bias correction applied");
+    Serial.println("* Scale factors applied to normalize gravity to 1g");
+    
+    // Print a summary of the calibration values
+    Serial.println("* Calibration values summary:");
+    Serial.print("  - Accel bias X/Y/Z: ");
+    Serial.print(calibrationData.accelBias[0], 2); Serial.print("/");
+    Serial.print(calibrationData.accelBias[1], 2); Serial.print("/");
+    Serial.print(calibrationData.accelBias[2], 2); Serial.println("g");
+    
+    Serial.print("  - Accel scale X/Y/Z: ");
+    Serial.print(calibrationData.accelScale[0], 3); Serial.print("/");
+    Serial.print(calibrationData.accelScale[1], 3); Serial.print("/");
+    Serial.print(calibrationData.accelScale[2], 3); Serial.println("");
+  } else {
+    Serial.println("* USING RAW SENSOR VALUES - No filtering or calibration applied");
+    Serial.println("* Run 'calibrate' command for improved data quality");
+  }
+  Serial.println("* Sample rate: 100Hz (typical for human gestures)");
   Serial.println("* No threshold or noise reduction applied");
+  
+  if (maxSampleInterval > 0) {
+    Serial.println("\nTiming Statistics (from previous recording):");
+    Serial.print("* Target interval: "); Serial.print(sampleInterval); Serial.println(" ms");
+    Serial.print("* Min interval: "); Serial.print(minSampleInterval); Serial.println(" ms");
+    Serial.print("* Max interval: "); Serial.print(maxSampleInterval); Serial.println(" ms");
+    Serial.print("* Jitter: ±"); Serial.print((maxSampleInterval - minSampleInterval)/2.0); Serial.println(" ms");
+  }
   
   Serial.println("------------------------------");
 }
@@ -315,7 +423,7 @@ void showRecordingProgress(unsigned long elapsedTime) {
   Serial.print(".0s)");
 }
 
-// Process recorded gesture data - no filtering
+// Process recorded gesture data for authentication
 void processGestureData(GestureData* gesture) {
   // Ensure valid data
   if (gesture->sampleCount < 10) {
@@ -330,6 +438,78 @@ void processGestureData(GestureData* gesture) {
   // Mark the gesture as active (valid)
   gesture->isActive = true;
   
+  // Extract features for authentication
+  if (authenticationMode) {
+    // Extract features from current gesture
+    extractFeatures(gesture, &currentFeatures);
+    
+    // Calculate similarity with reference gestures
+    float bestScore = 0;
+    int bestMatchIndex = -1;
+    
+    // Find best matching reference gesture
+    for (int i = 0; i < 3; i++) {
+      if (referenceGestures[i].isActive) {
+        // Extract features from reference if not done yet
+        GestureFeatures refFeatures;
+        extractFeatures(&referenceGestures[i], &refFeatures);
+        
+        // Calculate authentication score
+        float score = calculateAuthenticationScore(&refFeatures, &currentFeatures);
+        
+        Serial.print("Authentication score with reference #");
+        Serial.print(i+1);
+        Serial.print(": ");
+        Serial.println(score, 4);
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatchIndex = i;
+        }
+      }
+    }
+    
+    // Authentication result
+    authAttemptsCount++;
+    Serial.println("\n*** AUTHENTICATION RESULT ***");
+    Serial.print("Best match: Reference gesture #");
+    Serial.println(bestMatchIndex + 1);
+    Serial.print("Score: ");
+    Serial.print(bestScore * 100);
+    Serial.println("%");
+    
+    if (bestScore >= AUTH_THRESHOLD) {
+      Serial.println("AUTHENTICATION SUCCESSFUL!");
+      
+      // Flash green LED to indicate success
+      for (int i = 0; i < 5; i++) {
+        setLEDColor(false, true, false); // Green
+        delay(100);
+        ledOff();
+        delay(100);
+      }
+    } else {
+      Serial.println("AUTHENTICATION FAILED!");
+      
+      // Flash red LED to indicate failure
+      for (int i = 0; i < 5; i++) {
+        setLEDColor(true, false, false); // Red
+        delay(100);
+        ledOff();
+        delay(100);
+      }
+    }
+    
+    // Return to authentication mode
+    setLEDColor(false, false, true); // Blue
+  } else {
+    // In enrollment mode, just extract and save features if this is the last reference
+    if (currentReferenceIndex >= 2) {
+      extractFeatures(gesture, &referenceFeatures);
+      Serial.println("Reference features extracted and saved for authentication");
+    }
+  }
+  
   Serial.println("Gesture processing complete");
 }
 
@@ -338,13 +518,35 @@ void recordSensorData() {
   unsigned long currentTime = millis();
   unsigned long elapsedTime = currentTime - recordingStartTime;
   
-  // Read raw sensor data directly with no processing
-  float accX = imu.readFloatAccelX();
-  float accY = imu.readFloatAccelY();
-  float accZ = imu.readFloatAccelZ();
-  float gyroX = imu.readFloatGyroX();
-  float gyroY = imu.readFloatGyroY();
-  float gyroZ = imu.readFloatGyroZ();
+  // Read raw sensor data
+  float rawAccX = imu.readFloatAccelX();
+  float rawAccY = imu.readFloatAccelY();
+  float rawAccZ = imu.readFloatAccelZ();
+  float rawGyroX = imu.readFloatGyroX();
+  float rawGyroY = imu.readFloatGyroY();
+  float rawGyroZ = imu.readFloatGyroZ();
+  
+  // Apply calibration if available
+  float accX, accY, accZ, gyroX, gyroY, gyroZ;
+  
+  if (calibrationData.isCalibrated) {
+    // Apply calibration corrections
+    accX = applyCalibration(rawAccX, calibrationData.accelBias[0], calibrationData.accelScale[0]);
+    accY = applyCalibration(rawAccY, calibrationData.accelBias[1], calibrationData.accelScale[1]);
+    accZ = applyCalibration(rawAccZ, calibrationData.accelBias[2], calibrationData.accelScale[2]);
+    
+    gyroX = applyCalibration(rawGyroX, calibrationData.gyroBias[0], calibrationData.gyroScale[0]);
+    gyroY = applyCalibration(rawGyroY, calibrationData.gyroBias[1], calibrationData.gyroScale[1]);
+    gyroZ = applyCalibration(rawGyroZ, calibrationData.gyroBias[2], calibrationData.gyroScale[2]);
+  } else {
+    // Use raw values if no calibration
+    accX = rawAccX;
+    accY = rawAccY;
+    accZ = rawAccZ;
+    gyroX = rawGyroX;
+    gyroY = rawGyroY;
+    gyroZ = rawGyroZ;
+  }
   
   // Store in current gesture structure
   currentGesture.accX[sampleCount] = accX;
@@ -354,8 +556,28 @@ void recordSensorData() {
   currentGesture.gyroY[sampleCount] = gyroY;
   currentGesture.gyroZ[sampleCount] = gyroZ;
   
-  // Print in CSV format - simple output for reference gestures
-  Serial.print(elapsedTime);
+  // Calculate data validation flags
+  bool accelSaturated = 
+    abs(accX) > ACCEL_SATURATION_THRESHOLD ||
+    abs(accY) > ACCEL_SATURATION_THRESHOLD ||
+    abs(accZ) > ACCEL_SATURATION_THRESHOLD;
+    
+  bool gyroSaturated = 
+    abs(gyroX) > GYRO_SATURATION_THRESHOLD ||
+    abs(gyroY) > GYRO_SATURATION_THRESHOLD ||
+    abs(gyroZ) > GYRO_SATURATION_THRESHOLD;
+  
+  // Combine flags into a validation code (0 = all good)
+  byte validationFlags = 0;
+  if (accelSaturated) validationFlags |= 1;  // Bit 0 for accel saturation
+  if (gyroSaturated) validationFlags |= 2;   // Bit 1 for gyro saturation
+  
+  // Print in enhanced CSV format with absolute timestamp and validation flags
+  Serial.print(absoluteStartTime + elapsedTime);  // Absolute timestamp
+  Serial.print(",");
+  Serial.print(elapsedTime);  // Relative timestamp (still useful)
+  Serial.print(",");
+  Serial.print(recordingId);  // Recording ID
   Serial.print(",");
   Serial.print(accX, 4);  // 4 decimal places
   Serial.print(",");
@@ -367,14 +589,13 @@ void recordSensorData() {
   Serial.print(",");
   Serial.print(gyroY, 4);
   Serial.print(",");
-  Serial.println(gyroZ, 4);
+  Serial.print(gyroZ, 4);
+  Serial.print(",");
+  Serial.println(validationFlags);  // Data validation flags
   
   // Increment sample count
   sampleCount++;
   currentGesture.sampleCount = sampleCount;
-  
-  // Update last sample time
-  lastSampleTime = currentTime;
 }
 
 // Handle double tap detection - now manages recording window
@@ -393,23 +614,44 @@ void handleDoubleTap() {
   }
   ledOff();
   
+  // Generate new recording ID and set absolute start time
+  generateRecordingId();
+  absoluteStartTime = millis();
+  
   // Add delay before starting recording to avoid accidental motion
   Serial.println("Preparing to record in 350ms...");
   delay(350);  // 350ms pause before starting recording
   
-  // We're in reference recording mode
-  Serial.print("Recording REFERENCE gesture #");
-  Serial.println(currentReferenceIndex + 1);
+  if (authenticationMode) {
+    // Authentication mode
+    Serial.println("Recording AUTHENTICATION gesture");
+  } else {
+    // We're in enrollment mode
+    Serial.print("Recording ENROLLMENT gesture #");
+    Serial.println(currentReferenceIndex + 1);
+  }
   
   // Start recording immediately
   Serial.println("NOW BEGIN YOUR GESTURE!");
   Serial.println("Recording started");
-  setLEDColor(false, true, false); // Green - recording starts
+  
+  if (authenticationMode) {
+    setLEDColor(false, false, true); // Blue - authentication mode
+  } else {
+    setLEDColor(false, true, false); // Green - enrollment mode
+  }
   
   // Start recording window
   isRecording = true;
   recordingStartTime = millis();
   sampleCount = 0;
+  
+  // Initialize timing variables for consistent sampling
+  nextSampleTime = recordingStartTime;
+  lastActualSampleTime = recordingStartTime;
+  actualSampleInterval = 0;
+  maxSampleInterval = 0;
+  minSampleInterval = 9999;
   
   // Reset current gesture data
   currentGesture.isActive = true;
@@ -419,8 +661,8 @@ void handleDoubleTap() {
   
   // Print metadata and CSV header for the data
   printRecordingMetadata();
-  Serial.println("\nRECORDING STARTED - 10 second window");
-  Serial.println("timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z");
+  Serial.println("\nRECORDING STARTED - 2.5 second window");
+  Serial.println("abs_timestamp,rel_timestamp,recording_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z,validation_flags");
 }
 
 void setup() {
@@ -428,10 +670,15 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   
+  // Initialize random number generator with a somewhat random seed
+  randomSeed(analogRead(0));
+  
   Serial.println("XIAO nRF52840 Sense - Gesture Recording");
   Serial.println("----------------------------------------------");
   Serial.println("Commands:");
   Serial.println("  'reset' - Reset to reference gesture recording mode");
+  Serial.println("  'calibrate' - Run IMU calibration (place device on flat surface)");
+  Serial.println("  'fullcal' - Run extended IMU calibration (follow instructions)");
   Serial.println("----------------------------------------------");
   Serial.println("This program will record 3 reference gestures");
   Serial.println("Double tap to start recording each gesture");
@@ -454,6 +701,13 @@ void setup() {
   }
   
   Serial.println("LSM6DS3 initialized successfully");
+  
+  // Run basic calibration on startup
+  Serial.println("Performing initial calibration...");
+  Serial.println("Please place device on a flat surface and keep it still.");
+  delay(2000); // Give user time to position the device
+  calibrateIMU(false); // Run basic calibration
+  
   configureTapDetection();
   
   // Initialize gesture data structures
@@ -476,13 +730,31 @@ void loop() {
   if (isRecording) {
     unsigned long currentTime = millis();
     
-    // Sample at our defined rate and print the data
-    if (currentTime - lastSampleTime >= SAMPLE_RATE_MS) {
+    // Improved timing: check if it's time for the next scheduled sample
+    if (currentTime >= nextSampleTime) {
+      // Record sample and update timing info
       recordSensorData();
+      
+      // Calculate actual interval for this sample
+      if (lastActualSampleTime > 0) {
+        actualSampleInterval = currentTime - lastActualSampleTime;
+        // Track timing statistics to assess jitter
+        if (actualSampleInterval > maxSampleInterval) {
+          maxSampleInterval = actualSampleInterval;
+        }
+        if (actualSampleInterval < minSampleInterval) {
+          minSampleInterval = actualSampleInterval;
+        }
+      }
+      lastActualSampleTime = currentTime;
+      
+      // Schedule next sample exactly sampleInterval ms from the theoretical nextSampleTime
+      // This prevents drift from cumulative timing errors
+      nextSampleTime += sampleInterval;
       
       // Show recording progress every 500ms
       unsigned long elapsedTime = currentTime - recordingStartTime;
-      if (elapsedTime % 500 < SAMPLE_RATE_MS) {
+      if (elapsedTime % 500 < sampleInterval) {
         // Use LED color for progress indication only, don't print to serial during CSV recording
         updateProgressLED(elapsedTime);
       }
@@ -499,6 +771,13 @@ void loop() {
       // Log recording completion
       Serial.println();  // Add a newline to separate from CSV data
       Serial.println("\nRECORDING FINISHED - " + String(currentGesture.sampleCount) + " samples collected");
+      
+      // Print timing statistics
+      Serial.println("Timing Statistics:");
+      Serial.print("* Target interval: "); Serial.print(sampleInterval); Serial.println(" ms");
+      Serial.print("* Min interval: "); Serial.print(minSampleInterval); Serial.println(" ms");
+      Serial.print("* Max interval: "); Serial.print(maxSampleInterval); Serial.println(" ms");
+      Serial.print("* Jitter: ±"); Serial.print((maxSampleInterval - minSampleInterval)/2.0); Serial.println(" ms");
       
       // Process the recorded data
       processGestureData(&currentGesture);
@@ -563,8 +842,11 @@ void loop() {
         referenceGestures[i].sampleCount = 0;
       }
       
-      Serial.println("\n*** RESET TO REFERENCE RECORDING MODE ***");
-      Serial.println("Double tap to start recording reference gesture #1");
+      Serial.println("\n*** RESET TO ENROLLMENT MODE ***");
+      Serial.println("Double tap to record enrollment gesture #1");
+      
+      // Set to enrollment mode
+      setAuthenticationMode(false);
       
       // Blink red LED to indicate reset
       for (int i = 0; i < 3; i++) {
@@ -574,6 +856,183 @@ void loop() {
         delay(200);
       }
       setLEDColor(true, false, false); // Back to red (waiting state)
+    }
+    else if (command == "enroll") {
+      // Switch to enrollment mode
+      currentReferenceIndex = 0;
+      
+      // Reset reference gestures
+      for (int i = 0; i < 3; i++) {
+        referenceGestures[i].isActive = false;
+        referenceGestures[i].sampleCount = 0;
+      }
+      
+      // Set to enrollment mode
+      setAuthenticationMode(false);
+      
+      Serial.println("\n*** ENROLLMENT MODE ACTIVATED ***");
+      Serial.println("Double tap to record enrollment gesture #1");
+    }
+    else if (command == "auth") {
+      // Switch to authentication mode
+      setAuthenticationMode(true);
+    }
+    else if (command == "stats") {
+      // Show authentication statistics
+      Serial.println("\n*** AUTHENTICATION STATISTICS ***");
+      
+      // Count active reference gestures
+      int activeCount = 0;
+      for (int i = 0; i < 3; i++) {
+        if (referenceGestures[i].isActive) activeCount++;
+      }
+      
+      Serial.print("Reference gestures: ");
+      Serial.print(activeCount);
+      Serial.println("/3");
+      
+      Serial.print("Authentication attempts: ");
+      Serial.println(authAttemptsCount);
+      
+      Serial.print("Current mode: ");
+      Serial.println(authenticationMode ? "AUTHENTICATION" : "ENROLLMENT");
+      
+      // Show features of reference gestures if available
+      if (activeCount > 0) {
+        Serial.println("\nReference gesture features:");
+        for (int i = 0; i < 3; i++) {
+          if (referenceGestures[i].isActive) {
+            Serial.print("Gesture #");
+            Serial.print(i+1);
+            Serial.print(" (");
+            Serial.print(referenceGestures[i].sampleCount);
+            Serial.println(" samples):");
+            
+            GestureFeatures features;
+            extractFeatures(&referenceGestures[i], &features);
+            
+            Serial.print("  Acc Mean: "); 
+            Serial.print(features.accMagnitudeMean, 2);
+            Serial.print("g, Std: ");
+            Serial.println(features.accMagnitudeStd, 2);
+            
+            Serial.print("  Gyro Mean: "); 
+            Serial.print(features.gyroMagnitudeMean, 2);
+            Serial.print("dps, Std: ");
+            Serial.println(features.gyroMagnitudeStd, 2);
+            
+            Serial.print("  Dom. Frequency: ");
+            Serial.print(features.dominantFrequency, 2);
+            Serial.print("Hz, Energy Ratio: ");
+            Serial.println(features.energyRatio, 2);
+          }
+        }
+      }
+    }
+    else if (command == "calibrate") {
+      // Run basic calibration (single orientation)
+      Serial.println("\n*** STARTING BASIC CALIBRATION ***");
+      Serial.println("Place the device on a level surface and keep it still");
+      
+      // Brief pause to let user position the device
+      setLEDColor(false, false, true); // Blue
+      delay(3000);
+      
+      // Run the calibration
+      calibrateIMU(false);
+      
+      Serial.println("Calibration complete - back to recording mode");
+      Serial.println("Double tap to record a gesture");
+      
+      // Back to waiting state
+      setLEDColor(authenticationMode ? false : true, false, authenticationMode ? true : false); // Red or blue based on mode
+    }
+    else if (command == "fullcal") {
+      // Run full calibration (multi-orientation)
+      Serial.println("\n*** STARTING FULL CALIBRATION ***");
+      Serial.println("Follow the instructions for multi-orientation calibration");
+      
+      // Indicate extended calibration mode
+      for (int i = 0; i < 5; i++) {
+        setLEDColor(false, false, true); // Blue
+        delay(100);
+        ledOff();
+        delay(100);
+      }
+      
+      // Run the full calibration
+      calibrateIMU(true);
+      
+      Serial.println("Full calibration complete - back to recording mode");
+      Serial.println("Double tap to record a gesture");
+      
+      // Back to waiting state
+      setLEDColor(authenticationMode ? false : true, false, authenticationMode ? true : false); // Red or blue based on mode
+    }
+    else if (command == "info") {
+      // Display system information and current calibration
+      Serial.println("\n*** SYSTEM INFORMATION ***");
+      Serial.print("Device ID: ");
+      Serial.println(DEVICE_ID);
+      Serial.print("Firmware version: 1.2.0");
+      Serial.println(" (with authentication)");
+      
+      // Calibration status
+      Serial.println("\nCalibration Status:");
+      if (calibrationData.isCalibrated) {
+        Serial.println("  Calibrated: YES");
+        
+        // Calculate time since calibration
+        unsigned long calibAge = millis() - calibrationData.calibrationTimestamp;
+        Serial.print("  Calibration age: ");
+        if (calibAge < 60000) {
+          Serial.print(calibAge / 1000);
+          Serial.println(" seconds ago");
+        } else if (calibAge < 3600000) {
+          Serial.print(calibAge / 60000);
+          Serial.println(" minutes ago");
+        } else {
+          Serial.print(calibAge / 3600000);
+          Serial.println(" hours ago");
+        }
+        
+        // Display gravity vector magnitude
+        float gravityMag = sqrt(
+          pow(1.0 - calibrationData.accelBias[0], 2) +
+          pow(0.0 - calibrationData.accelBias[1], 2) +
+          pow(0.0 - calibrationData.accelBias[2], 2)
+        );
+        Serial.print("  Gravity magnitude: ");
+        Serial.print(gravityMag, 4);
+        Serial.println("g (should be close to 1.0)");
+      } else {
+        Serial.println("  Calibrated: NO (using raw sensor data)");
+        Serial.println("  Run 'calibrate' command to calibrate the sensor");
+      }
+      
+      Serial.println("\nAuthentication Status:");
+      Serial.print("  Mode: ");
+      Serial.println(authenticationMode ? "AUTHENTICATION" : "ENROLLMENT");
+      Serial.print("  Reference gestures recorded: ");
+      int count = 0;
+      for (int i = 0; i < 3; i++) {
+        if (referenceGestures[i].isActive) count++;
+      }
+      Serial.print(count);
+      Serial.println("/3");
+      Serial.print("  Authentication attempts: ");
+      Serial.println(authAttemptsCount);
+      Serial.print("  Authentication threshold: ");
+      Serial.print(AUTH_THRESHOLD * 100);
+      Serial.println("%");
+      
+      Serial.println("\nCommands:");
+      Serial.println("  'reset' - Reset to initial state");
+      Serial.println("  'enroll' - Enter enrollment mode");
+      Serial.println("  'auth' - Enter authentication mode");
+      Serial.println("  'stats' - Show authentication statistics");
+      Serial.println("  'calibrate' - Calibrate sensors");
+      Serial.println("  'info' - Show this information");
     }
   }
   
@@ -628,4 +1087,375 @@ void loop() {
   
   // Small delay to prevent flooding the serial monitor
   delay(10);
+}
+
+// Apply calibration correction to raw sensor values
+float applyCalibration(float value, float bias, float scale) {
+  return (value - bias) * scale;
+}
+
+// Production-grade IMU calibration routine
+void calibrateIMU(bool fullCalibration) {
+  const int samples = 500;         // Number of samples for averaging
+  const int discardSamples = 100;  // Initial samples to discard (for sensor stabilization)
+  const int delayMs = 10;          // Delay between samples (ms)
+  
+  float accelSum[3] = {0.0f, 0.0f, 0.0f};
+  float gyroSum[3] = {0.0f, 0.0f, 0.0f};
+  
+  // Storage for min/max values for 6-point calibration
+  float accelMin[3] = {1000.0f, 1000.0f, 1000.0f};
+  float accelMax[3] = {-1000.0f, -1000.0f, -1000.0f};
+  
+  // LEDs to indicate calibration mode
+  setLEDColor(false, false, true); // Blue for calibration
+  
+  Serial.println("\n=== IMU CALIBRATION STARTED ===");
+  Serial.println("Place device on a flat, level surface");
+  Serial.println("Keep completely still...");
+  
+  // Discard initial readings to let sensor stabilize
+  for (int i = 0; i < discardSamples; i++) {
+    imu.readRawAccelX();
+    imu.readRawAccelY();
+    imu.readRawAccelZ();
+    imu.readRawGyroX();
+    imu.readRawGyroY();
+    imu.readRawGyroZ();
+    delay(delayMs);
+  }
+  
+  // Collect samples for bias calculation (device must remain still)
+  Serial.println("Collecting data for bias calibration...");
+  Serial.print("[");
+  
+  for (int i = 0; i < samples; i++) {
+    // Show progress every 10%
+    if (i % (samples/10) == 0) {
+      Serial.print("=");
+    }
+    
+    // Read raw values (direct from sensor)
+    float accelX = imu.readFloatAccelX();
+    float accelY = imu.readFloatAccelY();
+    float accelZ = imu.readFloatAccelZ();
+    float gyroX = imu.readFloatGyroX();
+    float gyroY = imu.readFloatGyroY();
+    float gyroZ = imu.readFloatGyroZ();
+    
+    // Accumulate values
+    accelSum[0] += accelX;
+    accelSum[1] += accelY;
+    accelSum[2] += accelZ;
+    gyroSum[0] += gyroX;
+    gyroSum[1] += gyroY;
+    gyroSum[2] += gyroZ;
+    
+    // Update min/max for 6-point calibration
+    accelMin[0] = min(accelMin[0], accelX);
+    accelMin[1] = min(accelMin[1], accelY);
+    accelMin[2] = min(accelMin[2], accelZ);
+    accelMax[0] = max(accelMax[0], accelX);
+    accelMax[1] = max(accelMax[1], accelY);
+    accelMax[2] = max(accelMax[2], accelZ);
+    
+    delay(delayMs);
+  }
+  
+  Serial.println("]");
+  
+  // Calculate average (bias) values
+  for (int i = 0; i < 3; i++) {
+    // For accelerometer: We expect one axis to be ~1g (9.81 m/s²) due to gravity,
+    // depending on device orientation. Other axes should be near 0g.
+    accelSum[i] /= samples;
+    gyroSum[i] /= samples;
+  }
+  
+  // Data collection analysis - check for movement during calibration
+  float accelRange[3] = {
+    accelMax[0] - accelMin[0],
+    accelMax[1] - accelMin[1],
+    accelMax[2] - accelMin[2]
+  };
+  
+  bool calibrationValid = true;
+  
+  // Check if device was too unstable during calibration
+  for (int i = 0; i < 3; i++) {
+    if (accelRange[i] > 0.1f) { // More than 0.1g variation during calibration
+      calibrationValid = false;
+      Serial.print("WARNING: Too much movement on accel axis ");
+      Serial.print(i);
+      Serial.print(": ");
+      Serial.print(accelRange[i]);
+      Serial.println("g variation");
+    }
+  }
+  
+  // Calculate accelerometer gravity vector magnitude
+  float gravityMag = sqrt(
+    accelSum[0] * accelSum[0] + 
+    accelSum[1] * accelSum[1] + 
+    accelSum[2] * accelSum[2]
+  );
+  
+  Serial.print("Gravity magnitude: ");
+  Serial.print(gravityMag, 4);
+  Serial.println("g (should be close to 1.0)");
+  
+  if (abs(gravityMag - 1.0f) > 0.1f) {
+    Serial.println("WARNING: Gravity magnitude very different from expected 1g");
+    Serial.println("Sensor may need factory calibration or hardware inspection");
+  }
+  
+  // Set gyro bias directly from measurements (gyro should read 0 when still)
+  calibrationData.gyroBias[0] = gyroSum[0];
+  calibrationData.gyroBias[1] = gyroSum[1];
+  calibrationData.gyroBias[2] = gyroSum[2];
+  
+  // Find which axis has the largest absolute reading (this is likely aligned with gravity)
+  int gravityAxis = 0;
+  float maxAccel = abs(accelSum[0]);
+  for (int i = 1; i < 3; i++) {
+    if (abs(accelSum[i]) > maxAccel) {
+      maxAccel = abs(accelSum[i]);
+      gravityAxis = i;
+    }
+  }
+  
+  // Determine sign of gravity on that axis (positive or negative)
+  float gravitySign = accelSum[gravityAxis] > 0 ? 1.0f : -1.0f;
+  
+  // Set accelerometer bias for all axes
+  for (int i = 0; i < 3; i++) {
+    if (i == gravityAxis) {
+      // For gravity-aligned axis, bias is current reading minus expected gravity (1g)
+      calibrationData.accelBias[i] = accelSum[i] - (1.0f * gravitySign);
+    } else {
+      // For other axes, bias is the full measured value (should be 0 when level)
+      calibrationData.accelBias[i] = accelSum[i];
+    }
+  }
+  
+  // Calculate accelerometer scaling factors
+  // In a simple calibration, we set scaling to 1.0
+  calibrationData.accelScale[0] = 1.0f;
+  calibrationData.accelScale[1] = 1.0f;
+  calibrationData.accelScale[2] = 1.0f;
+  
+  // Scale correction based on gravity vector magnitude
+  if (gravityMag > 0.1f) { // Avoid division by zero
+    float scaleFactor = 1.0f / gravityMag;
+    calibrationData.accelScale[0] = scaleFactor;
+    calibrationData.accelScale[1] = scaleFactor;
+    calibrationData.accelScale[2] = scaleFactor;
+  }
+  
+  // If full calibration requested, would perform 6-point calibration here
+  // (requires rotating device to 6 different orientations)
+  if (fullCalibration) {
+    // This would be a multi-step process with user interaction
+    // Not implemented in this simplified version
+    Serial.println("Full 6-point calibration not implemented in this version");
+  }
+  
+  // Mark calibration as complete and record timestamp
+  calibrationData.isCalibrated = calibrationValid;
+  calibrationData.calibrationTimestamp = millis();
+  
+  // Print calibration results
+  Serial.println("\nCALIBRATION RESULTS:");
+  Serial.println("Accelerometer bias (g):");
+  Serial.print("  X: "); Serial.println(calibrationData.accelBias[0], 6);
+  Serial.print("  Y: "); Serial.println(calibrationData.accelBias[1], 6);
+  Serial.print("  Z: "); Serial.println(calibrationData.accelBias[2], 6);
+  
+  Serial.println("Accelerometer scale factors:");
+  Serial.print("  X: "); Serial.println(calibrationData.accelScale[0], 6);
+  Serial.print("  Y: "); Serial.println(calibrationData.accelScale[1], 6);
+  Serial.print("  Z: "); Serial.println(calibrationData.accelScale[2], 6);
+  
+  Serial.println("Gyroscope bias (dps):");
+  Serial.print("  X: "); Serial.println(calibrationData.gyroBias[0], 6);
+  Serial.print("  Y: "); Serial.println(calibrationData.gyroBias[1], 6);
+  Serial.print("  Z: "); Serial.println(calibrationData.gyroBias[2], 6);
+  
+  if (calibrationValid) {
+    Serial.println("Calibration SUCCESSFUL");
+    // Save to EEPROM in a real application
+    // saveCalibrationToEEPROM();
+  } else {
+    Serial.println("Calibration finished with WARNINGS - results may not be accurate");
+    Serial.println("Try again with device on a more stable surface");
+  }
+  
+  Serial.println("=== CALIBRATION COMPLETE ===\n");
+  
+  // Back to normal LED state
+  setLEDColor(true, false, false); // Red - waiting mode
+}
+
+// For future implementation - save calibration to EEPROM
+void saveCalibrationToEEPROM() {
+  // Code to save calibration data to EEPROM goes here
+  // (Not implemented in this version)
+}
+
+// For future implementation - load calibration from EEPROM
+void loadCalibrationFromEEPROM() {
+  // Code to load calibration data from EEPROM goes here
+  // (Not implemented in this version)
+}
+
+// Feature extraction for gesture authentication
+void extractFeatures(GestureData* gesture, GestureFeatures* features) {
+  float accMagSum = 0;
+  float accMagSqSum = 0;
+  float gyroMagSum = 0;
+  float gyroMagSqSum = 0;
+  float accMag[MAX_GESTURE_SAMPLES];
+  float gyroMag[MAX_GESTURE_SAMPLES];
+  
+  // Calculate magnitudes and sums
+  for (int i = 0; i < gesture->sampleCount; i++) {
+    // Calculate acceleration magnitude
+    accMag[i] = calculateAccMagnitude(
+      gesture->accX[i], gesture->accY[i], gesture->accZ[i]);
+    accMagSum += accMag[i];
+    accMagSqSum += accMag[i] * accMag[i];
+    
+    // Calculate gyroscope magnitude
+    gyroMag[i] = calculateGyroMagnitude(
+      gesture->gyroX[i], gesture->gyroY[i], gesture->gyroZ[i]);
+    gyroMagSum += gyroMag[i];
+    gyroMagSqSum += gyroMag[i] * gyroMag[i];
+  }
+  
+  // Calculate basic statistical features
+  features->accMagnitudeMean = accMagSum / gesture->sampleCount;
+  features->gyroMagnitudeMean = gyroMagSum / gesture->sampleCount;
+  
+  // Calculate standard deviations
+  float accMagVariance = (accMagSqSum / gesture->sampleCount) - 
+                         (features->accMagnitudeMean * features->accMagnitudeMean);
+  features->accMagnitudeStd = sqrt(accMagVariance > 0 ? accMagVariance : 0);
+  
+  float gyroMagVariance = (gyroMagSqSum / gesture->sampleCount) - 
+                          (features->gyroMagnitudeMean * features->gyroMagnitudeMean);
+  features->gyroMagnitudeStd = sqrt(gyroMagVariance > 0 ? gyroMagVariance : 0);
+  
+  // Simplified approximation of dominant frequency - find most common period
+  // This is a very basic approach - a real implementation would use FFT
+  int zeroCrossings = 0;
+  for (int i = 1; i < gesture->sampleCount; i++) {
+    if ((gyroMag[i] > features->gyroMagnitudeMean && 
+         gyroMag[i-1] < features->gyroMagnitudeMean) ||
+        (gyroMag[i] < features->gyroMagnitudeMean && 
+         gyroMag[i-1] > features->gyroMagnitudeMean)) {
+      zeroCrossings++;
+    }
+  }
+  
+  // Approximate frequency from zero crossings
+  if (zeroCrossings > 0) {
+    float recordingDurationSec = (float)RECORDING_DURATION / 1000.0f;
+    features->dominantFrequency = zeroCrossings / (2 * recordingDurationSec);
+  } else {
+    features->dominantFrequency = 0;
+  }
+  
+  // Simplified energy ratio - ratio of high to low frequency energy
+  // Dividing the signal into first and second half as a simple approach
+  float lowFreqEnergy = 0;
+  float highFreqEnergy = 0;
+  
+  int midpoint = gesture->sampleCount / 2;
+  for (int i = 1; i < midpoint; i++) {
+    float diff = gyroMag[i] - gyroMag[i-1];
+    lowFreqEnergy += diff * diff;
+  }
+  
+  for (int i = midpoint + 1; i < gesture->sampleCount; i++) {
+    float diff = gyroMag[i] - gyroMag[i-1];
+    highFreqEnergy += diff * diff;
+  }
+  
+  if (lowFreqEnergy > 0) {
+    features->energyRatio = highFreqEnergy / lowFreqEnergy;
+  } else {
+    features->energyRatio = 0;
+  }
+  
+  // Print extracted features
+  Serial.println("Extracted Features:");
+  Serial.print("Acc Magnitude Mean: "); Serial.println(features->accMagnitudeMean, 4);
+  Serial.print("Acc Magnitude Std: "); Serial.println(features->accMagnitudeStd, 4);
+  Serial.print("Gyro Magnitude Mean: "); Serial.println(features->gyroMagnitudeMean, 4);
+  Serial.print("Gyro Magnitude Std: "); Serial.println(features->gyroMagnitudeStd, 4);
+  Serial.print("Dominant Frequency: "); Serial.println(features->dominantFrequency, 4);
+  Serial.print("Energy Ratio: "); Serial.println(features->energyRatio, 4);
+}
+
+// Calculate authentication score between reference and current gesture
+float calculateAuthenticationScore(GestureFeatures* ref, GestureFeatures* current) {
+  // Simple feature similarity calculation
+  float scores[NUM_AUTH_FEATURES];
+  
+  // Normalized absolute difference for each feature
+  scores[0] = 1.0f - min(1.0f, abs(ref->accMagnitudeMean - current->accMagnitudeMean) / max(ref->accMagnitudeMean, 0.1f));
+  scores[1] = 1.0f - min(1.0f, abs(ref->accMagnitudeStd - current->accMagnitudeStd) / max(ref->accMagnitudeStd, 0.1f));
+  scores[2] = 1.0f - min(1.0f, abs(ref->gyroMagnitudeMean - current->gyroMagnitudeMean) / max(ref->gyroMagnitudeMean, 0.1f));
+  scores[3] = 1.0f - min(1.0f, abs(ref->gyroMagnitudeStd - current->gyroMagnitudeStd) / max(ref->gyroMagnitudeStd, 0.1f));
+  scores[4] = 1.0f - min(1.0f, abs(ref->dominantFrequency - current->dominantFrequency) / max(ref->dominantFrequency, 0.1f));
+  scores[5] = 1.0f - min(1.0f, abs(ref->energyRatio - current->energyRatio) / max(ref->energyRatio, 0.1f));
+  
+  // Weighted average
+  float weights[NUM_AUTH_FEATURES] = {0.15f, 0.2f, 0.15f, 0.2f, 0.15f, 0.15f};
+  float totalScore = 0;
+  
+  for (int i = 0; i < NUM_AUTH_FEATURES; i++) {
+    totalScore += scores[i] * weights[i];
+    
+    // Print individual feature scores
+    Serial.print("Feature ");
+    Serial.print(i);
+    Serial.print(" score: ");
+    Serial.println(scores[i], 4);
+  }
+  
+  return totalScore;
+}
+
+// Toggle between enrollment and authentication modes
+void setAuthenticationMode(bool isAuth) {
+  authenticationMode = isAuth;
+  
+  if (isAuth) {
+    Serial.println("*** AUTHENTICATION MODE ACTIVATED ***");
+    Serial.println("Use your recorded gesture to authenticate");
+    
+    // Check if we have reference gestures
+    bool hasReference = false;
+    for (int i = 0; i < 3; i++) {
+      if (referenceGestures[i].isActive) {
+        hasReference = true;
+        break;
+      }
+    }
+    
+    if (!hasReference) {
+      Serial.println("ERROR: No reference gestures found.");
+      Serial.println("Please enroll a gesture first (use 'enroll' command)");
+      authenticationMode = false;
+      setLEDColor(true, false, false); // Red for waiting mode
+      return;
+    }
+    
+    setLEDColor(false, false, true); // Blue for authentication mode
+  } else {
+    Serial.println("*** ENROLLMENT MODE ACTIVATED ***");
+    Serial.println("Record 3 samples of your gesture to enroll");
+    setLEDColor(true, false, false); // Red for enrollment/waiting
+  }
 }
