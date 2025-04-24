@@ -253,14 +253,17 @@
             <div class="bg-muted text-muted-foreground p-4 rounded-md mb-4 text-sm">
                 <p class="font-semibold mb-2">Instructions:</p>
                 <ol class="space-y-1 list-decimal pl-5">
-                    <li>Paste your CSV data below. Format should be: <code class="bg-secondary px-1 rounded">timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z</code></li>
-                    <li>Include metadata section from the Arduino output for enhanced visualization</li>
+                    <li>Paste your CSV data below. Supports format:
+                        <pre class="bg-secondary px-2 py-1 rounded mt-1 overflow-auto text-xs">timestamp,milliseconds,gesture_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z,label</pre>
+                        <span class="text-xs italic">Example: 13750,2300,g_11450_6153,-1.2717,1.8476,7.8114,-383.9500,645.1200,581.4200,0</span>
+                    </li>
                     <li>Click "Visualize" to see the 3D animation of your gesture</li>
-                    <li>Use controls to play, pause, or adjust playback speed</li>
-                    <li>Drag with mouse to rotate the view, scroll to zoom</li>
+                    <li>Use the timeline slider or play/pause controls to view the motion</li>
+                    <li>Adjust scaling factors if the motion is too small or too large</li>
+                    <li>Try enabling the "Motion Trail" option to see the path of movement</li>
                 </ol>
             </div>
-            <textarea id="csvInput" placeholder="Paste your CSV data here, including the metadata section..." class="w-full h-36 p-3 border border-input rounded-md bg-background text-foreground font-mono text-sm resize-y focus:ring-2 focus:ring-ring focus:outline-none"></textarea>
+            <textarea id="csvInput" placeholder="Paste your CSV data here..." class="w-full h-36 p-3 border border-input rounded-md bg-background text-foreground font-mono text-sm resize-y focus:ring-2 focus:ring-ring focus:outline-none"></textarea>
             <div class="flex space-x-3 mt-4">
                 <button id="visualizeBtn" class="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors">Visualize</button>
                 <button id="clearBtn" class="bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors">Clear</button>
@@ -311,11 +314,11 @@
                     <div class="space-y-2">
                         <div class="flex justify-between items-center">
                             <label for="accScale" class="text-sm">Acceleration Scale:</label>
-                            <input type="number" id="accScale" value="0.5" step="0.1" min="0.1" max="10" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                            <input type="number" id="accScale" value="0.1" step="0.05" min="0.01" max="10" class="w-20 p-1 text-sm border border-input rounded bg-background">
                         </div>
                         <div class="flex justify-between items-center">
                             <label for="gyroScale" class="text-sm">Gyroscope Scale:</label>
-                            <input type="number" id="gyroScale" value="0.01" step="0.005" min="0.001" max="1" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                            <input type="number" id="gyroScale" value="0.001" step="0.0005" min="0.0001" max="0.1" class="w-20 p-1 text-sm border border-input rounded bg-background">
                         </div>
                         <div class="mt-3 pt-3 border-t border-border">
                             <div class="flex justify-between items-center">
@@ -382,6 +385,10 @@
                     <span class="font-semibold mr-2">Filter Setting:</span>
                     <span id="metaFilter" class="text-muted-foreground">--</span>
                 </div>
+                <div class="flex" id="gestureIdContainer">
+                    <span class="font-semibold mr-2">Gesture ID:</span>
+                    <span id="metaGestureId" class="text-muted-foreground">--</span>
+                </div>
             </div>
             <div class="mt-4">
                 <h3 class="font-semibold mb-2">Sampling Considerations</h3>
@@ -410,13 +417,18 @@
 
         <div class="bg-card rounded-lg shadow-md p-6 border border-border">
             <div id="renderCanvas" class="rounded-md bg-muted/30 overflow-hidden"></div>
-            <div class="flex justify-center space-x-2 mt-4">
-                <button id="playBtn" class="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors">Play</button>
-                <button id="pauseBtn" class="bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors">Pause</button>
-                <button id="resetBtn" class="bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors">Reset</button>
-                <div class="flex items-center ml-2">
-                    <label for="speed" class="text-sm mr-2">Speed:</label>
-                    <input type="number" id="speed" value="1.0" step="0.1" min="0.1" max="5.0" class="w-16 p-1 text-sm border border-input rounded bg-background">
+            <div class="flex justify-between items-center mt-4">
+                <div class="flex space-x-2">
+                    <button id="playBtn" class="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors">Play</button>
+                    <button id="pauseBtn" class="bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors">Pause</button>
+                    <button id="resetBtn" class="bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors">Reset</button>
+                    <div class="flex items-center ml-2">
+                        <label for="speed" class="text-sm mr-2">Speed:</label>
+                        <input type="number" id="speed" value="1.0" step="0.1" min="0.1" max="5.0" class="w-16 p-1 text-sm border border-input rounded bg-background">
+                    </div>
+                </div>
+                <div id="currentGestureDisplay" class="hidden px-4 py-2 bg-primary/10 rounded-md text-primary-foreground font-medium">
+                    Gesture: <span id="currentGestureId">--</span>
                 </div>
             </div>
             <div id="status" class="text-center mt-4 font-medium">No data loaded</div>
@@ -723,8 +735,8 @@
             const initialRotY = (parseFloat(document.getElementById('initialRotY').value) || 0) * Math.PI / 180;
             const initialRotZ = (parseFloat(document.getElementById('initialRotZ').value) || 0) * Math.PI / 180;
             
-            const accScale = parseFloat(document.getElementById('accScale').value) || 0.5;
-            const gyroScale = parseFloat(document.getElementById('gyroScale').value) || 0.01;
+            const accScale = parseFloat(document.getElementById('accScale').value) || 0.1;
+            const gyroScale = parseFloat(document.getElementById('gyroScale').value) || 0.001;
             
             // Check which sensors are enabled
             const enableAcc = document.getElementById('enableAcc').checked;
@@ -740,10 +752,14 @@
                 let rotX = initialRotX, rotY = initialRotY, rotZ = initialRotZ;
                 
                 // Sum up all rotations up to current frame
+                // Convert from degrees to radians if needed (for consistency)
+                const toRadians = Math.PI / 180;
+                
                 for (let i = 0; i <= frameIndex; i++) {
-                    rotX += imuData[i].gyroX * gyroScale;
-                    rotY += imuData[i].gyroY * gyroScale;
-                    rotZ += imuData[i].gyroZ * gyroScale;
+                    // For the new format, the values are already in degrees, so we scale and convert to radians
+                    rotX += imuData[i].gyroX * gyroScale * toRadians;
+                    rotY += imuData[i].gyroY * gyroScale * toRadians;
+                    rotZ += imuData[i].gyroZ * gyroScale * toRadians;
                 }
                 
                 // Apply rotations in XYZ order
@@ -844,21 +860,23 @@
             // First try to extract metadata
             parseMetadata(csvText);
             
-            // Now parse the actual CSV data
-            const csvSection = csvText.includes('timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z') 
-                ? csvText.split('timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z')[1]
-                : csvText;
-                
-            const lines = csvSection.trim().split('\n');
+            // Now parse the actual CSV data - accept both formats
+            // Check for old format first
+            const isOldFormat = csvText.includes('timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z');
+            // Split lines regardless of format
+            const lines = csvText.trim().split('\n');
             
             imuData = [];
             
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim();
-                if (!line || line.startsWith('*') || line.startsWith('-')) continue;
+                if (!line || line.startsWith('*') || line.startsWith('-') || 
+                    line.startsWith('RECORDING') || line.startsWith('timestamp')) continue;
                 
                 const values = line.split(',');
-                if (values.length >= 7) {
+                
+                if (isOldFormat && values.length >= 7) {
+                    // Old format: timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z
                     imuData.push({
                         timestamp: parseFloat(values[0]),
                         accX: parseFloat(values[1]),
@@ -868,7 +886,33 @@
                         gyroY: parseFloat(values[5]),
                         gyroZ: parseFloat(values[6])
                     });
+                } 
+                else if (!isOldFormat && values.length >= 10) {
+                    // New format: timestamp,milliseconds,gesture_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z,label
+                    imuData.push({
+                        timestamp: parseFloat(values[0]),
+                        milliseconds: parseFloat(values[1]),
+                        gestureId: values[2],
+                        accX: parseFloat(values[3]),
+                        accY: parseFloat(values[4]),
+                        accZ: parseFloat(values[5]),
+                        gyroX: parseFloat(values[6]),
+                        gyroY: parseFloat(values[7]),
+                        gyroZ: parseFloat(values[8]),
+                        label: parseInt(values[9])
+                    });
                 }
+            }
+            
+            // Update the settings based on data format
+            if (!isOldFormat && imuData.length > 0) {
+                // For the new format, we need smaller scaling factors since values are larger
+                document.getElementById('accScale').value = "0.1";
+                document.getElementById('gyroScale').value = "0.001";
+            } else if (isOldFormat && imuData.length > 0) {
+                // For the old format, use the original scaling
+                document.getElementById('accScale').value = "0.5";
+                document.getElementById('gyroScale').value = "0.01";
             }
             
             animationState.frame = 0;
@@ -890,7 +934,29 @@
             const enableAcc = document.getElementById('enableAcc').checked;
             const enableGyro = document.getElementById('enableGyro').checked;
             
-            let statusText = `Frame: ${frameIndex + 1}/${imuData.length} | Time: ${frame.timestamp}ms`;
+            let statusText = "";
+            
+            // Display appropriate time info depending on data format
+            if (frame.hasOwnProperty('milliseconds')) {
+                // New format
+                statusText = `Frame: ${frameIndex + 1}/${imuData.length} | Time: ${frame.timestamp}:${frame.milliseconds}ms`;
+                
+                // Update gesture ID display
+                if (frame.gestureId) {
+                    statusText += ` | Gesture: ${frame.gestureId}`;
+                    document.getElementById('currentGestureId').textContent = frame.gestureId;
+                    document.getElementById('currentGestureDisplay').classList.remove('hidden');
+                    
+                    // Update metadata section too
+                    document.getElementById('metaGestureId').textContent = frame.gestureId;
+                    document.getElementById('gestureIdContainer').classList.remove('hidden');
+                }
+            } else {
+                // Old format
+                statusText = `Frame: ${frameIndex + 1}/${imuData.length} | Time: ${frame.timestamp}ms`;
+                document.getElementById('currentGestureDisplay').classList.add('hidden');
+                document.getElementById('gestureIdContainer').classList.add('hidden');
+            }
             
             if (enableAcc) {
                 statusText += ` | Acc: (${frame.accX.toFixed(2)}, ${frame.accY.toFixed(2)}, ${frame.accZ.toFixed(2)})`;
@@ -902,6 +968,11 @@
                 statusText += ` | Gyro: (${frame.gyroX.toFixed(2)}, ${frame.gyroY.toFixed(2)}, ${frame.gyroZ.toFixed(2)})`;
             } else {
                 statusText += ' | Gyro: [muted]';
+            }
+            
+            // Add label if available
+            if (frame.hasOwnProperty('label')) {
+                statusText += ` | Label: ${frame.label}`;
             }
             
             document.getElementById('status').textContent = statusText;
@@ -1019,43 +1090,29 @@
                 const sampleData = 
 `------ RECORDING METADATA ------
 Recording duration: 4000 ms
-Sample rate: 50 Hz
+Sample rate: 100 Hz
 
 Sensor configuration:
-- IMU: LSM6DS3 (Accelerometer + Gyroscope)
-- Accelerometer range: ±2g
+- IMU: ICM-42688-P (Accelerometer + Gyroscope)
+- Accelerometer range: ±16g
 - Gyroscope range: 2000 dps
 - Low-pass filter coefficient: 0.2
 
 Sampling Considerations:
-* Sample rate: 50-100Hz is typically sufficient for human gestures
-* Duration: Balance between memory constraints and gesture complexity
-* Filtering: Simple low-pass filter applied to reduce noise
+* Sample rate: 100Hz is sufficient for most gesture recognition tasks
+* Duration: Recording for approximately 4 seconds per gesture
+* Filtering: Basic low-pass filter applied
 ------------------------------
 
-RECORDING STARTED - 4 second window
-timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z
-0,0.0000,0.0000,1.0000,0.0000,0.0000,0.0000
-20,0.1000,0.0200,0.9900,1.0000,0.0000,0.0000
-40,0.2000,0.0400,0.9800,2.0000,0.0000,0.0000
-60,0.3000,0.0600,0.9500,3.0000,0.0000,0.0000
-80,0.4000,0.0800,0.9200,4.0000,0.0000,0.0000
-100,0.5000,0.1000,0.8800,5.0000,0.0000,0.0000
-120,0.4000,0.1200,0.9000,4.0000,1.0000,0.0000
-140,0.3000,0.1400,0.9200,3.0000,2.0000,0.0000
-160,0.2000,0.1600,0.9400,2.0000,3.0000,0.0000
-180,0.1000,0.1800,0.9600,1.0000,4.0000,0.0000
-200,0.0000,0.2000,0.9800,0.0000,5.0000,0.0000
-220,-0.1000,0.1800,0.9800,-1.0000,4.0000,0.0000
-240,-0.2000,0.1600,0.9600,-2.0000,3.0000,0.0000
-260,-0.3000,0.1400,0.9400,-3.0000,2.0000,0.0000
-280,-0.4000,0.1200,0.9200,-4.0000,1.0000,0.0000
-300,-0.5000,0.1000,0.8800,-5.0000,0.0000,0.0000
-320,-0.4000,0.0800,0.9000,-4.0000,0.0000,1.0000
-340,-0.3000,0.0600,0.9200,-3.0000,0.0000,2.0000
-360,-0.2000,0.0400,0.9400,-2.0000,0.0000,3.0000
-380,-0.1000,0.0200,0.9600,-1.0000,0.0000,4.0000
-400,0.0000,0.0000,0.9800,0.0000,0.0000,5.0000`;
+13750,2300,g_11450_6153,-1.2717,1.8476,7.8114,-383.9500,645.1200,581.4200,0
+13760,2310,g_11450_6153,-2.0320,1.1649,7.8617,-214.9000,472.0800,591.3600,0
+13770,2320,g_11450_6153,-1.3693,2.0067,6.5973,-233.3800,566.2300,665.2100,0
+13780,2330,g_11450_6153,-1.4274,1.9569,7.2063,-99.6800,402.0100,551.6000,0
+13790,2340,g_11450_6153,-1.4108,1.7324,7.4142,-49.9800,199.1500,266.9100,0
+13800,2350,g_11450_6153,-1.4362,1.7763,7.5855,-21.2100,118.3700,269.0100,0
+13810,2360,g_11450_6153,-1.7539,1.3937,7.6528,-4.2700,130.0600,350.7700,0
+13820,2370,g_11450_6153,-1.7973,1.7163,7.7587,38.2900,149.5900,638.1200,0
+13830,2380,g_11450_6153,-1.3991,2.1160,7.8134,18.6900,259.1400,691.4600,0`;
                 
                 document.getElementById('csvInput').value = sampleData;
                 parseCSVData(sampleData);
