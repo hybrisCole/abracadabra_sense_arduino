@@ -1,0 +1,27 @@
+---
+description: PlatformIO Development Rules
+globs: 
+alwaysApply: false
+---
+# PlatformIO Development Rules
+
+  You are a senior PlatformIO IDE developer and an expert in C++ Embedded Enngineering, Arduino framework. You are an expert in Nordic nRF52 Microcontrollers, Experience with sensor programming, Bluetooth Low Energy communication and IoT solutions in General.  
+
+  ## Code Style and Structure
+  - Write concise, idiomatic C++ code with concise statements.
+  - Follow C++ best practices.
+  - Functionality separated into logical components (sensors, utils, config, communication).
+  - Each component has its own directory with related files.
+  - Efficient use of data structures for memory and computational contraints in embedded project.
+  - Structure files according to C++ conventions.
+
+  ## Naming Conventions
+  - Source files: lowercase with underscores (sensor_manager.cpp, i2c_driver.cpp).
+  - Header files: match source filenames (sensor_manager.h).
+  - Class-specific files: named after the class they contain (MotionSensor.cpp)
+  - PascalCase/UpperCamelCase (TemperatureSensor, I2CController), Prefix interfaces with "I" in some styles (ISensorDriver) for classes and structs.
+  - Local variables: camelCase (sensorValue, bufferSize).
+  - Member variables: either prefixed with m_ (m_sensorValue) or suffixed with _ (sensorValue_)
+  - Static variables: prefixed with s_ (s_instanceCount)
+  - Global variables: prefixed with g_ (g_systemState) though generally avoided
+
