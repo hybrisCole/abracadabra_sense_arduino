@@ -27,7 +27,7 @@ alwaysApply: false
 
   ## IMU Sensor Implementation
   - Use LSM6DS3 accelerometer and gyroscope for motion sensing.
-  - Configure sample rate to 100Hz (10ms intervals) for optimal gesture recognition.
+  - Configure sample rate to 250Hz (10ms intervals) for optimal gesture recognition.
   - Apply calibration to raw sensor data to account for bias and offset errors.
   - Set appropriate ranges for accelerometer (±16g) and gyroscope (±2000 dps).
   - Implement low-pass filtering for noise reduction where appropriate.

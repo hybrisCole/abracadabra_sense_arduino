@@ -335,6 +335,20 @@
                                     <div class="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
                                 </div>
                             </div>
+                            <div class="flex justify-between items-center mt-2">
+                                <label for="enableSmoothing" class="text-sm">Smooth Animation:</label>
+                                <div class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="enableSmoothing" class="sr-only peer" checked>
+                                    <div class="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                                </div>
+                            </div>
+                            <div class="flex justify-between items-center mt-2">
+                                <label for="enableShadowTrail" class="text-sm">Shadowy Trail:</label>
+                                <div class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="enableShadowTrail" class="sr-only peer">
+                                    <div class="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -482,6 +496,10 @@
         let scene, camera, renderer, device, controls;
         let gridHelper, axesHelper; // Add references to grid and axes
         let gridRotationGroup; // Group to hold grid and axes for rotation
+        let previousDeviceRotation = new THREE.Euler(); // Store previous rotation
+        let previousDevicePosition = new THREE.Vector3(); // Store previous position
+        let shadowTrailObjects = []; // Array to store shadowy trail objects
+        let lastTrailTime = 0; // Track when we last added a trail object
         let imuData = [];
         let metadata = {
             duration: '',
@@ -525,6 +543,11 @@
             directionalLight.position.set(1, 1, 1);
             scene.add(directionalLight);
             
+            // Add point light to enhance metallic effect
+            const pointLight = new THREE.PointLight(0xffffff, 1, 10);
+            pointLight.position.set(2, 2, 3);
+            scene.add(pointLight);
+            
             // Create grid and axes helpers
             gridRotationGroup = new THREE.Group(); // Create a group to hold grid and axes
             scene.add(gridRotationGroup);
@@ -560,11 +583,36 @@
             // Create a group to hold the device parts
             device = new THREE.Group();
             
-            // Create main body - the XIAO board
-            const bodyGeometry = new THREE.BoxGeometry(1, 0.2, 1.5);
-            const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0x2c3e50 });
+            // Create main body - Quake 3 Arena style cube
+            const bodyGeometry = new THREE.BoxGeometry(1, 1, 1);
+            
+            // Create a texture loader
+            const textureLoader = new THREE.TextureLoader();
+            
+            // Create a Quake 3 Arena style material
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xff3333,     // Base scarlet color
+                metalness: 0.9,      // Very metallic
+                roughness: 0.3,      // Slight roughness for better light reflections
+                emissive: 0x660000,  // Stronger red glow
+                emissiveIntensity: 0.5
+            });
+            
             const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
             device.add(body);
+            
+            // Add glowing edges - a hallmark of Quake 3 Arena aesthetics
+            const edgeGeometry = new THREE.EdgesGeometry(bodyGeometry);
+            const edgeMaterial = new THREE.LineBasicMaterial({ 
+                color: 0xff9900,  // Orange-yellow glow
+                linewidth: 2      // Thicker lines (note: may not work in all browsers)
+            });
+            const edges = new THREE.LineSegments(edgeGeometry, edgeMaterial);
+            body.add(edges);
+            
+            // Add a subtle pulsing effect
+            body.userData.pulseTime = 0;
+            body.userData.pulseDirection = 1;
             
             // Add directional markers
             // Forward arrow (X axis - red)
@@ -572,7 +620,7 @@
                 new THREE.ConeGeometry(0.1, 0.4, 8),
                 new THREE.MeshPhongMaterial({ color: 0xff0000 })
             );
-            arrowX.position.set(0.7, 0.1, 0);
+            arrowX.position.set(0.7, 0, 0);
             arrowX.rotation.z = -Math.PI / 2;
             device.add(arrowX);
             
@@ -581,7 +629,7 @@
                 new THREE.ConeGeometry(0.1, 0.4, 8),
                 new THREE.MeshPhongMaterial({ color: 0x00ff00 })
             );
-            arrowY.position.set(0, 0.3, 0);
+            arrowY.position.set(0, 0.7, 0);
             device.add(arrowY);
             
             // Up arrow (Z axis - blue)
@@ -589,7 +637,7 @@
                 new THREE.ConeGeometry(0.1, 0.4, 8),
                 new THREE.MeshPhongMaterial({ color: 0x0000ff })
             );
-            arrowZ.position.set(0, 0.3, 0);
+            arrowZ.position.set(0, 0, 0.7);
             device.add(arrowZ);
             
             // Add device to scene
@@ -604,6 +652,52 @@
                 controls.update();
             }
             
+            // Apply pulsing effect to the cube if it exists
+            if (device && device.children[0] && device.children[0].userData.pulseTime !== undefined) {
+                const body = device.children[0];
+                
+                // Update pulse time
+                body.userData.pulseTime += 0.02 * body.userData.pulseDirection;
+                
+                // Change direction when limits reached
+                if (body.userData.pulseTime > 1) {
+                    body.userData.pulseTime = 1;
+                    body.userData.pulseDirection = -1;
+                } else if (body.userData.pulseTime < 0) {
+                    body.userData.pulseTime = 0;
+                    body.userData.pulseDirection = 1;
+                }
+                
+                // Apply pulse effect to emissive intensity
+                if (body.material && body.material.emissiveIntensity !== undefined) {
+                    const baseIntensity = 0.5;
+                    const pulseAmount = 0.3;
+                    body.material.emissiveIntensity = baseIntensity + Math.sin(body.userData.pulseTime * Math.PI) * pulseAmount;
+                    
+                    // Update edges glow color based on pulse
+                    if (body.children[0] && body.children[0].material) {
+                        const edgeIntensity = 0.7 + Math.sin(body.userData.pulseTime * Math.PI) * 0.3;
+                        body.children[0].material.color.setRGB(1, 0.6 * edgeIntensity, 0);
+                    }
+                }
+            }
+            
+            // Update shadowy trail effects
+            const enableShadowTrail = document.getElementById('enableShadowTrail').checked;
+            if (enableShadowTrail && device && animationState.playing) {
+                // Create shadowy trail objects periodically
+                if (time - lastTrailTime > 150) { // Create a new shadow every 150ms
+                    createShadowTrail();
+                    lastTrailTime = time;
+                }
+                
+                // Update existing shadow trails
+                updateShadowTrails(time);
+            } else if (!enableShadowTrail && shadowTrailObjects.length > 0) {
+                // Remove all shadow trail objects if the feature is disabled
+                clearShadowTrails();
+            }
+            
             if (animationState.playing && imuData.length > 0) {
                 // Calculate time delta
                 const delta = time - (animationState.lastTime || time);
@@ -615,6 +709,8 @@
                 // If reached the end, loop back to beginning
                 if (Math.floor(animationState.frame) >= imuData.length) {
                     animationState.frame = 0;
+                    previousDeviceRotation.set(0, 0, 0);
+                    previousDevicePosition.set(0, 0, 0);
                 }
                 
                 // Apply current frame data to device
@@ -628,6 +724,105 @@
             }
             
             renderer.render(scene, camera);
+        }
+        
+        // Create a shadow trail object at the current device position
+        function createShadowTrail() {
+            if (!device || !device.children[0]) return;
+            
+            // Create a clone of the device's main cube body
+            const originalCube = device.children[0];
+            const shadowGeometry = originalCube.geometry.clone();
+            
+            // Create a faded, translucent version of the original material
+            const shadowMaterial = new THREE.MeshStandardMaterial({
+                color: 0x6600cc,      // Purple-blue color like Dark Templar
+                metalness: 0.7,
+                roughness: 0.3,
+                transparent: true,
+                opacity: 0.7,         // Start semi-transparent
+                emissive: 0x330066,
+                emissiveIntensity: 0.5
+            });
+            
+            // Create the shadow mesh
+            const shadowMesh = new THREE.Mesh(shadowGeometry, shadowMaterial);
+            
+            // Position and rotate exactly where the device is
+            shadowMesh.position.copy(device.position);
+            shadowMesh.rotation.copy(device.rotation);
+            shadowMesh.scale.set(0.95, 0.95, 0.95); // Slightly smaller
+            
+            // Add creation timestamp for fading effect
+            shadowMesh.userData.creationTime = performance.now();
+            shadowMesh.userData.lifespan = 1500; // 1.5 seconds before disappearing
+            
+            // Add to scene and tracking array
+            scene.add(shadowMesh);
+            shadowTrailObjects.push(shadowMesh);
+            
+            // Limit the number of trail objects
+            if (shadowTrailObjects.length > 10) {
+                // Remove the oldest shadow
+                const oldestShadow = shadowTrailObjects.shift();
+                scene.remove(oldestShadow);
+                if (oldestShadow.material) {
+                    oldestShadow.material.dispose();
+                }
+                if (oldestShadow.geometry) {
+                    oldestShadow.geometry.dispose();
+                }
+            }
+        }
+        
+        // Update all shadow trail objects (fade them out over time)
+        function updateShadowTrails(currentTime) {
+            const shadowsToRemove = [];
+            
+            for (let i = 0; i < shadowTrailObjects.length; i++) {
+                const shadow = shadowTrailObjects[i];
+                const age = currentTime - shadow.userData.creationTime;
+                const lifePercentage = age / shadow.userData.lifespan;
+                
+                if (lifePercentage >= 1) {
+                    // Mark for removal if it's too old
+                    shadowsToRemove.push(i);
+                } else {
+                    // Fade out based on age
+                    shadow.material.opacity = 0.7 * (1 - lifePercentage);
+                    
+                    // Scale down slightly as it ages for a "dissipating" effect
+                    const scale = 0.95 * (1 - 0.2 * lifePercentage);
+                    shadow.scale.set(scale, scale, scale);
+                }
+            }
+            
+            // Remove shadows marked for deletion (in reverse order to avoid index issues)
+            for (let i = shadowsToRemove.length - 1; i >= 0; i--) {
+                const index = shadowsToRemove[i];
+                const shadow = shadowTrailObjects[index];
+                
+                // Remove from scene and dispose resources
+                scene.remove(shadow);
+                if (shadow.material) shadow.material.dispose();
+                if (shadow.geometry) shadow.geometry.dispose();
+                
+                // Remove from array
+                shadowTrailObjects.splice(index, 1);
+            }
+        }
+        
+        // Clear all shadow trail objects
+        function clearShadowTrails() {
+            // Remove all shadows from scene and dispose resources
+            shadowTrailObjects.forEach(shadow => {
+                scene.remove(shadow);
+                if (shadow.material) shadow.material.dispose();
+                if (shadow.geometry) shadow.geometry.dispose();
+            });
+            
+            // Clear the array
+            shadowTrailObjects = [];
         }
         
         // Update the frame indicator and timeline slider
@@ -755,7 +950,7 @@
             motionTrail = [];
         }
         
-        // Apply IMU data to device
+        // Apply IMU data to device with smoothing
         function applyFrameData(frameIndex) {
             if (frameIndex < 0 || frameIndex >= imuData.length) return;
             
@@ -776,38 +971,73 @@
             // Check which sensors are enabled
             const enableAcc = document.getElementById('enableAcc').checked;
             const enableGyro = document.getElementById('enableGyro').checked;
+            const enableSmoothing = document.getElementById('enableSmoothing').checked;
             
-            // Reset device transformation to initial settings
-            device.position.set(initialX, initialY, initialZ);
-            device.rotation.set(initialRotX, initialRotY, initialRotZ);
+            // Calculate target rotation
+            let targetRotX = initialRotX;
+            let targetRotY = initialRotY;
+            let targetRotZ = initialRotZ;
             
-            // Apply rotation from gyroscope data (cumulative from start)
             if (enableGyro) {
-                // This is a simplification - real orientation would use sensor fusion
-                let rotX = initialRotX, rotY = initialRotY, rotZ = initialRotZ;
-                
                 // Sum up all rotations up to current frame
-                // Convert from degrees to radians if needed (for consistency)
                 const toRadians = Math.PI / 180;
                 
                 for (let i = 0; i <= frameIndex; i++) {
-                    // For the new format, the values are already in degrees, so we scale and convert to radians
-                    rotX += imuData[i].gyroX * gyroScale * toRadians;
-                    rotY += imuData[i].gyroY * gyroScale * toRadians;
-                    rotZ += imuData[i].gyroZ * gyroScale * toRadians;
+                    targetRotX += imuData[i].gyroX * gyroScale * toRadians;
+                    targetRotY += imuData[i].gyroY * gyroScale * toRadians;
+                    targetRotZ += imuData[i].gyroZ * gyroScale * toRadians;
                 }
-                
-                // Apply rotations in XYZ order
-                device.rotation.x = rotX;
-                device.rotation.y = rotY;
-                device.rotation.z = rotZ;
             }
             
-            // Apply position offset based on current acceleration
+            // Calculate target position
+            let targetPosX = initialX;
+            let targetPosY = initialY;
+            let targetPosZ = initialZ;
+            
             if (enableAcc) {
-                device.position.x = initialX + frame.accX * accScale;
-                device.position.y = initialY + frame.accY * accScale;
-                device.position.z = initialZ + frame.accZ * accScale;
+                targetPosX += frame.accX * accScale;
+                targetPosY += frame.accY * accScale;
+                targetPosZ += frame.accZ * accScale;
+            }
+            
+            if (enableSmoothing) {
+                // Apply rotation with smoothing (lerp between previous and target)
+                if (previousDeviceRotation.x !== undefined) {
+                    const smoothFactor = 0.3; // Adjust for more/less smoothing (0-1)
+                    
+                    device.rotation.x = previousDeviceRotation.x + (targetRotX - previousDeviceRotation.x) * smoothFactor;
+                    device.rotation.y = previousDeviceRotation.y + (targetRotY - previousDeviceRotation.y) * smoothFactor;
+                    device.rotation.z = previousDeviceRotation.z + (targetRotZ - previousDeviceRotation.z) * smoothFactor;
+                    
+                    // Store new rotation for next frame
+                    previousDeviceRotation.set(device.rotation.x, device.rotation.y, device.rotation.z);
+                } else {
+                    device.rotation.set(targetRotX, targetRotY, targetRotZ);
+                    previousDeviceRotation.set(targetRotX, targetRotY, targetRotZ);
+                }
+                
+                // Apply position with smoothing
+                if (previousDevicePosition.x !== undefined) {
+                    const smoothFactor = 0.3; // Adjust for more/less smoothing (0-1)
+                    
+                    device.position.x = previousDevicePosition.x + (targetPosX - previousDevicePosition.x) * smoothFactor;
+                    device.position.y = previousDevicePosition.y + (targetPosY - previousDevicePosition.y) * smoothFactor;
+                    device.position.z = previousDevicePosition.z + (targetPosZ - previousDevicePosition.z) * smoothFactor;
+                    
+                    // Store new position for next frame
+                    previousDevicePosition.set(device.position.x, device.position.y, device.position.z);
+                } else {
+                    device.position.set(targetPosX, targetPosY, targetPosZ);
+                    previousDevicePosition.set(targetPosX, targetPosY, targetPosZ);
+                }
+            } else {
+                // Apply raw data directly without smoothing
+                device.rotation.set(targetRotX, targetRotY, targetRotZ);
+                device.position.set(targetPosX, targetPosY, targetPosZ);
+                
+                // Update previous values to match current (prevents jump when enabling smoothing)
+                previousDeviceRotation.set(targetRotX, targetRotY, targetRotZ);
+                previousDevicePosition.set(targetPosX, targetPosY, targetPosZ);
             }
             
             // Handle motion trail if enabled
