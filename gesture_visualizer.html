@@ -314,11 +314,11 @@
                     <div class="space-y-2">
                         <div class="flex justify-between items-center">
                             <label for="accScale" class="text-sm">Acceleration Scale:</label>
-                            <input type="number" id="accScale" value="0.1" step="0.05" min="0.01" max="10" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                            <input type="number" id="accScale" value="0.2" step="0.05" min="0.01" max="10" class="w-20 p-1 text-sm border border-input rounded bg-background">
                         </div>
                         <div class="flex justify-between items-center">
                             <label for="gyroScale" class="text-sm">Gyroscope Scale:</label>
-                            <input type="number" id="gyroScale" value="0.001" step="0.0005" min="0.0001" max="0.1" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                            <input type="number" id="gyroScale" value="0.0015" step="0.0005" min="0.0001" max="0.1" class="w-20 p-1 text-sm border border-input rounded bg-background">
                         </div>
                         <div class="mt-3 pt-3 border-t border-border">
                             <div class="flex justify-between items-center">
@@ -351,6 +351,36 @@
                         <div class="flex justify-between items-center">
                             <label for="trailLength" class="text-sm">Trail Length:</label>
                             <input type="number" id="trailLength" value="20" min="5" max="100" step="5" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Grid Orientation Section -->
+                <div class="bg-muted/40 rounded-md p-4 border border-border">
+                    <h3 class="font-semibold text-sm mb-3">Grid Orientation</h3>
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center">
+                            <label for="gridRotX" class="text-sm">X Rotation (degrees):</label>
+                            <input type="number" id="gridRotX" value="0" step="90" min="-180" max="180" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label for="gridRotY" class="text-sm">Y Rotation (degrees):</label>
+                            <input type="number" id="gridRotY" value="0" step="90" min="-180" max="180" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <label for="gridRotZ" class="text-sm">Z Rotation (degrees):</label>
+                            <input type="number" id="gridRotZ" value="0" step="90" min="-180" max="180" class="w-20 p-1 text-sm border border-input rounded bg-background">
+                        </div>
+                        <button id="applyGridRotation" class="bg-primary text-primary-foreground px-3 py-1 rounded-md hover:bg-primary/90 transition-colors mt-2 w-full text-sm">Apply Rotation</button>
+                        <button id="resetGridRotation" class="bg-secondary text-secondary-foreground px-3 py-1 rounded-md hover:bg-secondary/90 transition-colors w-full text-sm">Reset Rotation</button>
+                        <div class="text-xs text-muted-foreground mt-2">
+                            <p>Quick Presets:</p>
+                            <div class="flex flex-wrap gap-1 mt-1">
+                                <button class="grid-preset px-2 py-1 bg-secondary text-secondary-foreground text-xs rounded" data-x="0" data-y="0" data-z="0">Default</button>
+                                <button class="grid-preset px-2 py-1 bg-secondary text-secondary-foreground text-xs rounded" data-x="90" data-y="0" data-z="0">Up is Forward</button>
+                                <button class="grid-preset px-2 py-1 bg-secondary text-secondary-foreground text-xs rounded" data-x="0" data-y="90" data-z="0">Up is Right</button>
+                                <button class="grid-preset px-2 py-1 bg-secondary text-secondary-foreground text-xs rounded" data-x="0" data-y="0" data-z="90">Horizontal Flip</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -450,6 +480,8 @@
 
         // Global variables
         let scene, camera, renderer, device, controls;
+        let gridHelper, axesHelper; // Add references to grid and axes
+        let gridRotationGroup; // Group to hold grid and axes for rotation
         let imuData = [];
         let metadata = {
             duration: '',
@@ -494,11 +526,15 @@
             scene.add(directionalLight);
             
             // Create grid and axes helpers
-            const gridHelper = new THREE.GridHelper(10, 10);
-            scene.add(gridHelper);
+            gridRotationGroup = new THREE.Group(); // Create a group to hold grid and axes
+            scene.add(gridRotationGroup);
             
-            const axesHelper = new THREE.AxesHelper(3);
-            scene.add(axesHelper);
+            gridHelper = new THREE.GridHelper(10, 10);
+            gridRotationGroup.add(gridHelper);
+            
+            // Create axes helper with default orientation
+            axesHelper = new THREE.AxesHelper(3);
+            gridRotationGroup.add(axesHelper);
             
             // Create device representation
             createDevice();
@@ -553,8 +589,7 @@
                 new THREE.ConeGeometry(0.1, 0.4, 8),
                 new THREE.MeshPhongMaterial({ color: 0x0000ff })
             );
-            arrowZ.position.set(0, 0.1, 0.8);
-            arrowZ.rotation.x = Math.PI / 2;
+            arrowZ.position.set(0, 0.3, 0);
             device.add(arrowZ);
             
             // Add device to scene
@@ -735,8 +770,8 @@
             const initialRotY = (parseFloat(document.getElementById('initialRotY').value) || 0) * Math.PI / 180;
             const initialRotZ = (parseFloat(document.getElementById('initialRotZ').value) || 0) * Math.PI / 180;
             
-            const accScale = parseFloat(document.getElementById('accScale').value) || 0.1;
-            const gyroScale = parseFloat(document.getElementById('gyroScale').value) || 0.001;
+            const accScale = parseFloat(document.getElementById('accScale').value) || 0.2;
+            const gyroScale = parseFloat(document.getElementById('gyroScale').value) || 0.0015;
             
             // Check which sensors are enabled
             const enableAcc = document.getElementById('enableAcc').checked;
@@ -907,8 +942,8 @@
             // Update the settings based on data format
             if (!isOldFormat && imuData.length > 0) {
                 // For the new format, we need smaller scaling factors since values are larger
-                document.getElementById('accScale').value = "0.1";
-                document.getElementById('gyroScale').value = "0.001";
+                document.getElementById('accScale').value = "0.2";
+                document.getElementById('gyroScale').value = "0.0015";
             } else if (isOldFormat && imuData.length > 0) {
                 // For the old format, use the original scaling
                 document.getElementById('accScale').value = "0.5";
@@ -1090,7 +1125,7 @@
                 const sampleData = 
 `------ RECORDING METADATA ------
 Recording duration: 4000 ms
-Sample rate: 100 Hz
+Sample rate: 250 Hz
 
 Sensor configuration:
 - IMU: ICM-42688-P (Accelerometer + Gyroscope)
@@ -1099,7 +1134,7 @@ Sensor configuration:
 - Low-pass filter coefficient: 0.2
 
 Sampling Considerations:
-* Sample rate: 100Hz is sufficient for most gesture recognition tasks
+* Sample rate: 250Hz provides detailed data for gesture recognition
 * Duration: Recording for approximately 4 seconds per gesture
 * Filtering: Basic low-pass filter applied
 ------------------------------
@@ -1129,7 +1164,56 @@ Sampling Considerations:
                 this.checked = true;
                 scene.background = new THREE.Color(0x1a1a1a);
             });
+
+            // Add event listeners for grid orientation controls
+            document.getElementById('applyGridRotation').addEventListener('click', () => {
+                const rotX = parseFloat(document.getElementById('gridRotX').value) || 0;
+                const rotY = parseFloat(document.getElementById('gridRotY').value) || 0;
+                const rotZ = parseFloat(document.getElementById('gridRotZ').value) || 0;
+                
+                applyGridRotation(rotX, rotY, rotZ);
+            });
+            
+            document.getElementById('resetGridRotation').addEventListener('click', () => {
+                document.getElementById('gridRotX').value = 0;
+                document.getElementById('gridRotY').value = 0;
+                document.getElementById('gridRotZ').value = 0;
+                
+                applyGridRotation(0, 0, 0);
+            });
+            
+            // Add event listeners for grid rotation presets
+            document.querySelectorAll('.grid-preset').forEach(button => {
+                button.addEventListener('click', () => {
+                    const rotX = parseFloat(button.getAttribute('data-x')) || 0;
+                    const rotY = parseFloat(button.getAttribute('data-y')) || 0;
+                    const rotZ = parseFloat(button.getAttribute('data-z')) || 0;
+                    
+                    // Update input fields
+                    document.getElementById('gridRotX').value = rotX;
+                    document.getElementById('gridRotY').value = rotY;
+                    document.getElementById('gridRotZ').value = rotZ;
+                    
+                    applyGridRotation(rotX, rotY, rotZ);
+                });
+            });
         });
+
+        // Function to apply rotation to grid and axes
+        function applyGridRotation(rotX, rotY, rotZ) {
+            // Convert degrees to radians
+            const radX = (rotX * Math.PI) / 180;
+            const radY = (rotY * Math.PI) / 180;
+            const radZ = (rotZ * Math.PI) / 180;
+            
+            // Reset rotation
+            gridRotationGroup.rotation.set(0, 0, 0);
+            
+            // Apply rotations in order: X, Y, Z
+            gridRotationGroup.rotateX(radX);
+            gridRotationGroup.rotateY(radY);
+            gridRotationGroup.rotateZ(radZ);
+        }
     </script>
 </body>
 </html> 

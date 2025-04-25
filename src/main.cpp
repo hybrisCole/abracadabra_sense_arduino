@@ -32,13 +32,13 @@ bool isRecording = false;
 unsigned long recordingStartTime = 0;
 #define RECORDING_DURATION 2500  // Record for 2.5 seconds (shortened for authentication gestures)
 
-// Sampling configuration - increasing to 100Hz for better gesture detail
-#define SAMPLE_RATE_MS 10  // Sample every 10ms (approximately 100Hz)
+// Sampling configuration - increasing to 250Hz for better gesture detail
+#define SAMPLE_RATE_MS 4  // Sample every 4ms (approximately 250Hz)
 unsigned long lastSampleTime = 0;
 unsigned long sampleCount = 0;
 
 // Gesture storage constants
-#define MAX_GESTURE_SAMPLES 500     // Maximum samples in a processed gesture
+#define MAX_GESTURE_SAMPLES 625     // Maximum samples in a processed gesture (250Hz * 2.5s)
 
 // Gesture authentication settings
 #define AUTH_THRESHOLD 0.75         // Similarity threshold for authentication (0.0-1.0)
@@ -364,7 +364,7 @@ void printRecordingMetadata() {
     Serial.println("* USING RAW SENSOR VALUES - No filtering or calibration applied");
     Serial.println("* Run 'calibrate' command for improved data quality");
   }
-  Serial.println("* Sample rate: 100Hz (typical for human gestures)");
+  Serial.println("* Sample rate: 250Hz (typical for human gestures)");
   Serial.println("* No threshold or noise reduction applied");
   
   if (maxSampleInterval > 0) {
