@@ -118,6 +118,66 @@ typedef struct {
 GestureFeatures referenceFeatures;   // Features of enrolled gesture
 GestureFeatures currentFeatures;     // Features of current authentication attempt
 
+// Peak detection thresholds
+#define PEAK_THRESHOLD_ACCEL 0.5  // Minimum acceleration change to detect a peak (in g)
+#define PEAK_THRESHOLD_GYRO 50.0  // Minimum gyroscope change to detect a peak (in dps)
+
+// Peak detection variables
+float lastAccMag = 0;
+float lastGyroMag = 0;
+int accelPeakCount = 0;
+int gyroPeakCount = 0;
+float maxAccelPeak = 0;
+float maxGyroPeak = 0;
+bool wasAccelRising = false;
+bool wasGyroRising = false;
+
+// Correlation calculation variables
+float accelCorrXY = 0;  // Correlation between X and Y acceleration
+float accelCorrXZ = 0;  // Correlation between X and Z acceleration
+float accelCorrYZ = 0;  // Correlation between Y and Z acceleration
+float gyroCorrXY = 0;   // Correlation between X and Y rotation
+float gyroCorrXZ = 0;   // Correlation between X and Z rotation
+float gyroCorrYZ = 0;   // Correlation between Y and Z rotation
+
+// Rolling window for correlation calculation
+#define CORR_WINDOW_SIZE 50  // Number of samples to use for correlation
+float accelXWindow[CORR_WINDOW_SIZE];
+float accelYWindow[CORR_WINDOW_SIZE];
+float accelZWindow[CORR_WINDOW_SIZE];
+float gyroXWindow[CORR_WINDOW_SIZE];
+float gyroYWindow[CORR_WINDOW_SIZE];
+float gyroZWindow[CORR_WINDOW_SIZE];
+int corrWindowIndex = 0;
+bool corrWindowFull = false;
+
+// Frequency band energy calculation
+#define NUM_FREQ_BANDS 4  // Number of frequency bands to analyze
+float accelFreqEnergy[NUM_FREQ_BANDS] = {0};  // Energy in each frequency band for accelerometer
+float gyroFreqEnergy[NUM_FREQ_BANDS] = {0};   // Energy in each frequency band for gyroscope
+
+// Rolling window for frequency analysis
+#define FREQ_WINDOW_SIZE 64  // Power of 2 for efficient FFT
+float accelFreqWindow[FREQ_WINDOW_SIZE];
+float gyroFreqWindow[FREQ_WINDOW_SIZE];
+int freqWindowIndex = 0;
+bool freqWindowFull = false;
+
+// Zero-crossing rate calculation
+#define ZCR_WINDOW_SIZE 32  // Window size for ZCR calculation
+float accelZCR[3] = {0};    // ZCR for each accelerometer axis
+float gyroZCR[3] = {0};     // ZCR for each gyroscope axis
+
+// Rolling windows for ZCR calculation
+float accelXZCRWindow[ZCR_WINDOW_SIZE];
+float accelYZCRWindow[ZCR_WINDOW_SIZE];
+float accelZZCRWindow[ZCR_WINDOW_SIZE];
+float gyroXZCRWindow[ZCR_WINDOW_SIZE];
+float gyroYZCRWindow[ZCR_WINDOW_SIZE];
+float gyroZZCRWindow[ZCR_WINDOW_SIZE];
+int zcrWindowIndex = 0;
+bool zcrWindowFull = false;
+
 // Forward declarations
 void processGestureData(GestureData* gesture);
 void showRecordingProgress(unsigned long elapsedTime);
@@ -129,6 +189,11 @@ void loadCalibrationFromEEPROM();
 void extractFeatures(GestureData* gesture, GestureFeatures* features);
 float calculateAuthenticationScore(GestureFeatures* ref, GestureFeatures* current);
 void setAuthenticationMode(bool isAuth);
+float calculateCorrelation(float* signal1, float* signal2, int size);
+void updateCorrelations();
+void calculateFreqBandEnergy(float* signal, float* energy, int windowSize);
+float calculateZCR(float* signal, int windowSize);
+void updateZCR();
 
 // Calculate the magnitude of acceleration vectors
 float calculateAccMagnitude(float x, float y, float z) {
@@ -513,6 +578,112 @@ void processGestureData(GestureData* gesture) {
   Serial.println("Gesture processing complete");
 }
 
+// Function to detect peaks in a signal
+bool detectPeak(float current, float last, float threshold, bool wasRising) {
+    bool isRising = current > last;
+    bool peakDetected = wasRising && !isRising && (abs(current - last) > threshold);
+    return peakDetected;
+}
+
+// Calculate correlation coefficient between two signals
+float calculateCorrelation(float* signal1, float* signal2, int size) {
+    float sum1 = 0, sum2 = 0, sum1Sq = 0, sum2Sq = 0, pSum = 0;
+    
+    for (int i = 0; i < size; i++) {
+        sum1 += signal1[i];
+        sum2 += signal2[i];
+        sum1Sq += signal1[i] * signal1[i];
+        sum2Sq += signal2[i] * signal2[i];
+        pSum += signal1[i] * signal2[i];
+    }
+    
+    float num = pSum - (sum1 * sum2 / size);
+    float den = sqrt((sum1Sq - sum1 * sum1 / size) * (sum2Sq - sum2 * sum2 / size));
+    
+    if (den == 0) return 0;
+    return num / den;
+}
+
+// Update correlation calculations
+void updateCorrelations() {
+    if (!corrWindowFull) return;
+    
+    // Calculate accelerometer correlations
+    accelCorrXY = calculateCorrelation(accelXWindow, accelYWindow, CORR_WINDOW_SIZE);
+    accelCorrXZ = calculateCorrelation(accelXWindow, accelZWindow, CORR_WINDOW_SIZE);
+    accelCorrYZ = calculateCorrelation(accelYWindow, accelZWindow, CORR_WINDOW_SIZE);
+    
+    // Calculate gyroscope correlations
+    gyroCorrXY = calculateCorrelation(gyroXWindow, gyroYWindow, CORR_WINDOW_SIZE);
+    gyroCorrXZ = calculateCorrelation(gyroXWindow, gyroZWindow, CORR_WINDOW_SIZE);
+    gyroCorrYZ = calculateCorrelation(gyroYWindow, gyroZWindow, CORR_WINDOW_SIZE);
+}
+
+// Calculate energy in frequency bands using a simple moving average filter
+void calculateFreqBandEnergy(float* signal, float* energy, int windowSize) {
+    // Simple band-pass filtering using moving averages of different lengths
+    // This approximates frequency bands without full FFT
+    float band1 = 0, band2 = 0, band3 = 0, band4 = 0;
+    
+    // Band 1: Very low frequency (0-2 Hz) - long moving average
+    for (int i = 0; i < windowSize; i++) {
+        band1 += signal[i];
+    }
+    band1 /= windowSize;
+    
+    // Band 2: Low frequency (2-5 Hz) - medium moving average
+    for (int i = 0; i < windowSize/2; i++) {
+        band2 += signal[i];
+    }
+    band2 = (band2 / (windowSize/2)) - band1;
+    
+    // Band 3: Medium frequency (5-10 Hz) - short moving average
+    for (int i = 0; i < windowSize/4; i++) {
+        band3 += signal[i];
+    }
+    band3 = (band3 / (windowSize/4)) - band2 - band1;
+    
+    // Band 4: High frequency (>10 Hz) - very short moving average
+    for (int i = 0; i < windowSize/8; i++) {
+        band4 += signal[i];
+    }
+    band4 = (band4 / (windowSize/8)) - band3 - band2 - band1;
+    
+    // Store energy values (squared to get power)
+    energy[0] = band1 * band1;
+    energy[1] = band2 * band2;
+    energy[2] = band3 * band3;
+    energy[3] = band4 * band4;
+}
+
+// Calculate zero-crossing rate for a signal window
+float calculateZCR(float* signal, int windowSize) {
+    int crossings = 0;
+    for (int i = 1; i < windowSize; i++) {
+        // Count sign changes, ignoring small fluctuations near zero
+        if ((signal[i] > 0.01f && signal[i-1] < -0.01f) || 
+            (signal[i] < -0.01f && signal[i-1] > 0.01f)) {
+            crossings++;
+        }
+    }
+    return (float)crossings / (windowSize - 1);  // Normalize by window size
+}
+
+// Update zero-crossing rates for all axes
+void updateZCR() {
+    if (!zcrWindowFull) return;
+    
+    // Calculate ZCR for accelerometer axes
+    accelZCR[0] = calculateZCR(accelXZCRWindow, ZCR_WINDOW_SIZE);
+    accelZCR[1] = calculateZCR(accelYZCRWindow, ZCR_WINDOW_SIZE);
+    accelZCR[2] = calculateZCR(accelZZCRWindow, ZCR_WINDOW_SIZE);
+    
+    // Calculate ZCR for gyroscope axes
+    gyroZCR[0] = calculateZCR(gyroXZCRWindow, ZCR_WINDOW_SIZE);
+    gyroZCR[1] = calculateZCR(gyroYZCRWindow, ZCR_WINDOW_SIZE);
+    gyroZCR[2] = calculateZCR(gyroZZCRWindow, ZCR_WINDOW_SIZE);
+}
+
 // Record and print current sensor data
 void recordSensorData() {
   unsigned long currentTime = millis();
@@ -548,6 +719,42 @@ void recordSensorData() {
     gyroZ = rawGyroZ;
   }
   
+  // Update correlation windows
+  accelXWindow[corrWindowIndex] = accX;
+  accelYWindow[corrWindowIndex] = accY;
+  accelZWindow[corrWindowIndex] = accZ;
+  gyroXWindow[corrWindowIndex] = gyroX;
+  gyroYWindow[corrWindowIndex] = gyroY;
+  gyroZWindow[corrWindowIndex] = gyroZ;
+  
+  corrWindowIndex = (corrWindowIndex + 1) % CORR_WINDOW_SIZE;
+  if (corrWindowIndex == 0) {
+    corrWindowFull = true;
+  }
+  
+  // Update correlation calculations
+  updateCorrelations();
+  
+  // Calculate current magnitudes
+  float currentAccMag = calculateAccMagnitude(accX, accY, accZ);
+  float currentGyroMag = calculateGyroMagnitude(gyroX, gyroY, gyroZ);
+  
+  // Detect peaks
+  if (detectPeak(currentAccMag, lastAccMag, PEAK_THRESHOLD_ACCEL, wasAccelRising)) {
+    accelPeakCount++;
+    maxAccelPeak = max(maxAccelPeak, currentAccMag);
+  }
+  if (detectPeak(currentGyroMag, lastGyroMag, PEAK_THRESHOLD_GYRO, wasGyroRising)) {
+    gyroPeakCount++;
+    maxGyroPeak = max(maxGyroPeak, currentGyroMag);
+  }
+  
+  // Update last values and rising states
+  wasAccelRising = currentAccMag > lastAccMag;
+  wasGyroRising = currentGyroMag > lastGyroMag;
+  lastAccMag = currentAccMag;
+  lastGyroMag = currentGyroMag;
+  
   // Store in current gesture structure
   currentGesture.accX[sampleCount] = accX;
   currentGesture.accY[sampleCount] = accY;
@@ -572,10 +779,43 @@ void recordSensorData() {
   if (accelSaturated) validationFlags |= 1;  // Bit 0 for accel saturation
   if (gyroSaturated) validationFlags |= 2;   // Bit 1 for gyro saturation
   
+  // Update frequency analysis windows
+  accelFreqWindow[freqWindowIndex] = currentAccMag;
+  gyroFreqWindow[freqWindowIndex] = currentGyroMag;
+  
+  freqWindowIndex = (freqWindowIndex + 1) % FREQ_WINDOW_SIZE;
+  if (freqWindowIndex == 0) {
+    freqWindowFull = true;
+  }
+  
+  // Calculate frequency band energies when window is full
+  if (freqWindowFull) {
+    calculateFreqBandEnergy(accelFreqWindow, accelFreqEnergy, FREQ_WINDOW_SIZE);
+    calculateFreqBandEnergy(gyroFreqWindow, gyroFreqEnergy, FREQ_WINDOW_SIZE);
+  }
+  
+  // Update ZCR windows
+  accelXZCRWindow[zcrWindowIndex] = accX;
+  accelYZCRWindow[zcrWindowIndex] = accY;
+  accelZZCRWindow[zcrWindowIndex] = accZ;
+  gyroXZCRWindow[zcrWindowIndex] = gyroX;
+  gyroYZCRWindow[zcrWindowIndex] = gyroY;
+  gyroZZCRWindow[zcrWindowIndex] = gyroZ;
+  
+  zcrWindowIndex = (zcrWindowIndex + 1) % ZCR_WINDOW_SIZE;
+  if (zcrWindowIndex == 0) {
+    zcrWindowFull = true;
+  }
+  
+  // Calculate ZCR when window is full
+  if (zcrWindowFull) {
+    updateZCR();
+  }
+  
   // Print in enhanced CSV format with absolute timestamp and validation flags
   Serial.print(absoluteStartTime + elapsedTime);  // Absolute timestamp
   Serial.print(",");
-  Serial.print(elapsedTime);  // Relative timestamp (still useful)
+  Serial.print(elapsedTime);  // Relative timestamp
   Serial.print(",");
   Serial.print(recordingId);  // Recording ID
   Serial.print(",");
@@ -591,7 +831,53 @@ void recordSensorData() {
   Serial.print(",");
   Serial.print(gyroZ, 4);
   Serial.print(",");
-  Serial.println(validationFlags);  // Data validation flags
+  Serial.print(validationFlags);  // Data validation flags
+  Serial.print(",");
+  Serial.print(currentAccMag, 4);  // Current acceleration magnitude
+  Serial.print(",");
+  Serial.print(currentGyroMag, 4);  // Current gyroscope magnitude
+  Serial.print(",");
+  Serial.print(accelPeakCount);  // Number of acceleration peaks detected
+  Serial.print(",");
+  Serial.print(gyroPeakCount);  // Number of gyroscope peaks detected
+  Serial.print(",");
+  Serial.print(maxAccelPeak, 4);  // Maximum acceleration peak magnitude
+  Serial.print(",");
+  Serial.print(maxGyroPeak, 4);  // Maximum gyroscope peak magnitude
+  Serial.print(",");
+  Serial.print(accelCorrXY, 4);  // Correlation between X and Y acceleration
+  Serial.print(",");
+  Serial.print(accelCorrXZ, 4);  // Correlation between X and Z acceleration
+  Serial.print(",");
+  Serial.print(accelCorrYZ, 4);  // Correlation between Y and Z acceleration
+  Serial.print(",");
+  Serial.print(gyroCorrXY, 4);   // Correlation between X and Y rotation
+  Serial.print(",");
+  Serial.print(gyroCorrXZ, 4);   // Correlation between X and Z rotation
+  Serial.print(",");
+  Serial.println(gyroCorrYZ, 4); // Correlation between Y and Z rotation
+  
+  // Add frequency band energies to CSV output
+  for (int i = 0; i < NUM_FREQ_BANDS; i++) {
+    Serial.print(",");
+    Serial.print(accelFreqEnergy[i], 4);  // Accelerometer frequency band energy
+  }
+  for (int i = 0; i < NUM_FREQ_BANDS; i++) {
+    Serial.print(",");
+    Serial.print(gyroFreqEnergy[i], 4);   // Gyroscope frequency band energy
+  }
+  Serial.println();
+  
+  // Add ZCR values to CSV output
+  for (int i = 0; i < 3; i++) {
+    Serial.print(",");
+    Serial.print(accelZCR[i], 4);  // Accelerometer ZCR for each axis
+  }
+  for (int i = 0; i < 3; i++) {
+    Serial.print(",");
+    Serial.print(gyroZCR[i], 4);   // Gyroscope ZCR for each axis
+  }
+  Serial.println();
   
   // Increment sample count
   sampleCount++;
@@ -659,10 +945,46 @@ void handleDoubleTap() {
   currentGesture.gestureID = currentReferenceIndex;
   currentGesture.repetition = 1;
   
+  // Reset peak detection variables
+  lastAccMag = 0;
+  lastGyroMag = 0;
+  accelPeakCount = 0;
+  gyroPeakCount = 0;
+  maxAccelPeak = 0;
+  maxGyroPeak = 0;
+  wasAccelRising = false;
+  wasGyroRising = false;
+  
+  // Reset correlation variables
+  corrWindowIndex = 0;
+  corrWindowFull = false;
+  accelCorrXY = 0;
+  accelCorrXZ = 0;
+  accelCorrYZ = 0;
+  gyroCorrXY = 0;
+  gyroCorrXZ = 0;
+  gyroCorrYZ = 0;
+  
+  // Reset frequency analysis variables
+  freqWindowIndex = 0;
+  freqWindowFull = false;
+  for (int i = 0; i < NUM_FREQ_BANDS; i++) {
+    accelFreqEnergy[i] = 0;
+    gyroFreqEnergy[i] = 0;
+  }
+  
+  // Reset ZCR variables
+  zcrWindowIndex = 0;
+  zcrWindowFull = false;
+  for (int i = 0; i < 3; i++) {
+    accelZCR[i] = 0;
+    gyroZCR[i] = 0;
+  }
+  
   // Print metadata and CSV header for the data
   printRecordingMetadata();
   Serial.println("\nRECORDING STARTED - 2.5 second window");
-  Serial.println("abs_timestamp,rel_timestamp,recording_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z,validation_flags");
+  Serial.println("abs_timestamp,rel_timestamp,recording_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z,validation_flags,acc_mag,gyro_mag,accel_peaks,gyro_peaks,max_accel_peak,max_gyro_peak,accel_corr_xy,accel_corr_xz,accel_corr_yz,gyro_corr_xy,gyro_corr_xz,gyro_corr_yz,accel_freq_band1,accel_freq_band2,accel_freq_band3,accel_freq_band4,gyro_freq_band1,gyro_freq_band2,gyro_freq_band3,gyro_freq_band4,accel_zcr_x,accel_zcr_y,accel_zcr_z,gyro_zcr_x,gyro_zcr_y,gyro_zcr_z");
 }
 
 void setup() {
