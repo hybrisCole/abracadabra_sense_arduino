@@ -2,6 +2,7 @@
 #include <Wire.h>
 #include <LSM6DS3.h>
 #include <stdint.h>
+#include <algorithm>  // For std::min
 
 // Create IMU object - XIAO nRF52840 Sense has built-in LSM6DS3
 LSM6DS3 imu(I2C_MODE);  // Using default I2C address 0x6A
@@ -223,7 +224,7 @@ void resampleGesture(GestureData* gesture, float* outputAcc, float* outputGyro, 
     // Calculate the corresponding index in the original series
     float srcIndex = (float)j * gesture->sampleCount / outputLength;
     int index1 = (int)srcIndex;
-    int index2 = min(index1 + 1, gesture->sampleCount - 1);
+    int index2 = std::min(index1 + 1, gesture->sampleCount - 1);
     float fraction = srcIndex - index1;
     
     // Linear interpolation between samples
@@ -333,7 +334,7 @@ void configureTapDetection() {
   imu.writeRegister(LSM6DS3_ACC_GYRO_WAKE_UP_THS, 0x00);  // Bit 7=0 for double tap mode
   
   // Read back configuration registers to verify
-  uint8_t tapCfg, tapThs, intDur2, wakeUpThs, ctrl10, ctrl1;
+  uint8_t tapCfg = 0, tapThs = 0, intDur2 = 0, wakeUpThs = 0, ctrl10 = 0, ctrl1 = 0;
   
   imu.readRegister(&ctrl1, LSM6DS3_ACC_GYRO_CTRL1_XL);
   imu.readRegister(&ctrl10, LSM6DS3_ACC_GYRO_CTRL10_C);
@@ -364,13 +365,7 @@ void generateRecordingId() {
 // Print metadata about the recording session
 void printRecordingMetadata() {
   Serial.println("\n------ RECORDING METADATA ------");
-  Serial.print("device_id: ");
-  Serial.println(DEVICE_ID);
-  Serial.print("recording_id: ");
-  Serial.println(recordingId);
-  Serial.print("absolute_start_time: ");
-  Serial.println(absoluteStartTime);
-  Serial.print("recording_duration: ");
+  Serial.print("Recording duration: ");
   Serial.print(RECORDING_DURATION);
   Serial.println(" ms");
   
@@ -407,37 +402,18 @@ void printRecordingMetadata() {
   Serial.print("- Accelerometer range: "); Serial.println(accRange);
   Serial.print("- Gyroscope range: "); Serial.println(gyroRange);
   
-  Serial.println("\nData Processing:");
-  if (calibrationData.isCalibrated) {
-    Serial.println("* USING CALIBRATED SENSOR VALUES");
-    Serial.println("* Accelerometer bias correction applied");
-    Serial.println("* Gyroscope bias correction applied");
-    Serial.println("* Scale factors applied to normalize gravity to 1g");
-    
-    // Print a summary of the calibration values
-    Serial.println("* Calibration values summary:");
-    Serial.print("  - Accel bias X/Y/Z: ");
-    Serial.print(calibrationData.accelBias[0], 2); Serial.print("/");
-    Serial.print(calibrationData.accelBias[1], 2); Serial.print("/");
-    Serial.print(calibrationData.accelBias[2], 2); Serial.println("g");
-    
-    Serial.print("  - Accel scale X/Y/Z: ");
-    Serial.print(calibrationData.accelScale[0], 3); Serial.print("/");
-    Serial.print(calibrationData.accelScale[1], 3); Serial.print("/");
-    Serial.print(calibrationData.accelScale[2], 3); Serial.println("");
-  } else {
-    Serial.println("* USING RAW SENSOR VALUES - No filtering or calibration applied");
-    Serial.println("* Run 'calibrate' command for improved data quality");
-  }
-  Serial.println("* Sample rate: 250Hz (typical for human gestures)");
-  Serial.println("* No threshold or noise reduction applied");
+  Serial.println("\nSampling Considerations:");
+  Serial.print("* Sample rate: "); 
+  Serial.print(1000 / SAMPLE_RATE_MS);
+  Serial.println("Hz provides detailed data for gesture recognition");
+  Serial.print("* Duration: Recording for approximately ");
+  Serial.print(RECORDING_DURATION / 1000);
+  Serial.println(" seconds per gesture");
   
-  if (maxSampleInterval > 0) {
-    Serial.println("\nTiming Statistics (from previous recording):");
-    Serial.print("* Target interval: "); Serial.print(sampleInterval); Serial.println(" ms");
-    Serial.print("* Min interval: "); Serial.print(minSampleInterval); Serial.println(" ms");
-    Serial.print("* Max interval: "); Serial.print(maxSampleInterval); Serial.println(" ms");
-    Serial.print("* Jitter: ±"); Serial.print((maxSampleInterval - minSampleInterval)/2.0); Serial.println(" ms");
+  if (calibrationData.isCalibrated) {
+    Serial.println("* Calibration: Sensor calibration applied");
+  } else {
+    Serial.println("* Calibration: Using raw sensor values");
   }
   
   Serial.println("------------------------------");
@@ -686,71 +662,49 @@ void updateZCR() {
 
 // Record and print current sensor data
 void recordSensorData() {
-  unsigned long currentTime = millis();
-  unsigned long elapsedTime = currentTime - recordingStartTime;
-  
-  // Read raw sensor data
-  float rawAccX = imu.readFloatAccelX();
-  float rawAccY = imu.readFloatAccelY();
-  float rawAccZ = imu.readFloatAccelZ();
-  float rawGyroX = imu.readFloatGyroX();
-  float rawGyroY = imu.readFloatGyroY();
-  float rawGyroZ = imu.readFloatGyroZ();
+  // Read sensor data
+  float accX = imu.readFloatAccelX();
+  float accY = imu.readFloatAccelY();
+  float accZ = imu.readFloatAccelZ();
+  float gyroX = imu.readFloatGyroX();
+  float gyroY = imu.readFloatGyroY();
+  float gyroZ = imu.readFloatGyroZ();
   
   // Apply calibration if available
-  float accX, accY, accZ, gyroX, gyroY, gyroZ;
-  
   if (calibrationData.isCalibrated) {
-    // Apply calibration corrections
-    accX = applyCalibration(rawAccX, calibrationData.accelBias[0], calibrationData.accelScale[0]);
-    accY = applyCalibration(rawAccY, calibrationData.accelBias[1], calibrationData.accelScale[1]);
-    accZ = applyCalibration(rawAccZ, calibrationData.accelBias[2], calibrationData.accelScale[2]);
+    // Apply accelerometer calibration
+    accX = (accX - calibrationData.accelBias[0]) * calibrationData.accelScale[0];
+    accY = (accY - calibrationData.accelBias[1]) * calibrationData.accelScale[1];
+    accZ = (accZ - calibrationData.accelBias[2]) * calibrationData.accelScale[2];
     
-    gyroX = applyCalibration(rawGyroX, calibrationData.gyroBias[0], calibrationData.gyroScale[0]);
-    gyroY = applyCalibration(rawGyroY, calibrationData.gyroBias[1], calibrationData.gyroScale[1]);
-    gyroZ = applyCalibration(rawGyroZ, calibrationData.gyroBias[2], calibrationData.gyroScale[2]);
-  } else {
-    // Use raw values if no calibration
-    accX = rawAccX;
-    accY = rawAccY;
-    accZ = rawAccZ;
-    gyroX = rawGyroX;
-    gyroY = rawGyroY;
-    gyroZ = rawGyroZ;
+    // Apply gyroscope calibration
+    gyroX -= calibrationData.gyroBias[0];
+    gyroY -= calibrationData.gyroBias[1];
+    gyroZ -= calibrationData.gyroBias[2];
   }
   
-  // Store in current gesture structure
-  currentGesture.accX[sampleCount] = accX;
-  currentGesture.accY[sampleCount] = accY;
-  currentGesture.accZ[sampleCount] = accZ;
-  currentGesture.gyroX[sampleCount] = gyroX;
-  currentGesture.gyroY[sampleCount] = gyroY;
-  currentGesture.gyroZ[sampleCount] = gyroZ;
+  // Store data in current gesture
+  if (currentGesture.sampleCount < MAX_GESTURE_SAMPLES) {
+    currentGesture.accX[currentGesture.sampleCount] = accX;
+    currentGesture.accY[currentGesture.sampleCount] = accY;
+    currentGesture.accZ[currentGesture.sampleCount] = accZ;
+    currentGesture.gyroX[currentGesture.sampleCount] = gyroX;
+    currentGesture.gyroY[currentGesture.sampleCount] = gyroY;
+    currentGesture.gyroZ[currentGesture.sampleCount] = gyroZ;
+    currentGesture.sampleCount++;
+  }
   
-  // Print raw data in CSV format
-  Serial.print(absoluteStartTime + elapsedTime);  // timestamp
-  Serial.print(",");
-  Serial.print(elapsedTime);  // milliseconds
-  Serial.print(",");
-  Serial.print(recordingId);  // gesture_id
-  Serial.print(",");
-  Serial.print(accX, 4);  // acc_x
-  Serial.print(",");
-  Serial.print(accY, 4);  // acc_y
-  Serial.print(",");
-  Serial.print(accZ, 4);  // acc_z
-  Serial.print(",");
-  Serial.print(gyroX, 4);  // gyro_x
-  Serial.print(",");
-  Serial.print(gyroY, 4);  // gyro_y
-  Serial.print(",");
-  Serial.print(gyroZ, 4);  // gyro_z
-  Serial.print(",");
-  Serial.println(authenticationMode ? "auth" : "enroll");  // label
-  
-  // Increment sample count
-  sampleCount++;
-  currentGesture.sampleCount = sampleCount;
+  // Print data in CSV format
+  Serial.print(millis()); Serial.print(",");
+  Serial.print(millis() - recordingStartTime); Serial.print(",");
+  Serial.print(recordingId); Serial.print(",");
+  Serial.print(accX, 6); Serial.print(",");
+  Serial.print(accY, 6); Serial.print(",");
+  Serial.print(accZ, 6); Serial.print(",");
+  Serial.print(gyroX, 6); Serial.print(",");
+  Serial.print(gyroY, 6); Serial.print(",");
+  Serial.print(gyroZ, 6); Serial.print(",");
+  Serial.println(authenticationMode ? "auth" : "enroll");
 }
 
 // Calculate and print features after recording is complete
@@ -761,38 +715,14 @@ void calculateAndPrintFeatures() {
   }
 
   Serial.println("\n=== FEATURE ANALYSIS ===");
-  Serial.println("timestamp,milliseconds,gesture_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z,label");
-
-  // Process all samples
-  for (int i = 0; i < currentGesture.sampleCount; i++) {
-    float accX = currentGesture.accX[i];
-    float accY = currentGesture.accY[i];
-    float accZ = currentGesture.accZ[i];
-    float gyroX = currentGesture.gyroX[i];
-    float gyroY = currentGesture.gyroY[i];
-    float gyroZ = currentGesture.gyroZ[i];
-    
-    // Print data in CSV format
-    Serial.print(absoluteStartTime + (i * SAMPLE_RATE_MS));  // timestamp
-    Serial.print(",");
-    Serial.print(i * SAMPLE_RATE_MS);  // milliseconds
-    Serial.print(",");
-    Serial.print(recordingId);  // gesture_id
-    Serial.print(",");
-    Serial.print(accX, 4);  // acc_x
-    Serial.print(",");
-    Serial.print(accY, 4);  // acc_y
-    Serial.print(",");
-    Serial.print(accZ, 4);  // acc_z
-    Serial.print(",");
-    Serial.print(gyroX, 4);  // gyro_x
-    Serial.print(",");
-    Serial.print(gyroY, 4);  // gyro_y
-    Serial.print(",");
-    Serial.print(gyroZ, 4);  // gyro_z
-    Serial.print(",");
-    Serial.println(authenticationMode ? "auth" : "enroll");  // label
-  }
+  // Extract features from the recorded gesture
+  GestureFeatures currentFeatures;
+  extractFeatures(&currentGesture, &currentFeatures);
+  
+  // Print feature analysis summary
+  Serial.println("Feature analysis complete");
+  Serial.print("Samples analyzed: ");
+  Serial.println(currentGesture.sampleCount);
 }
 
 // Handle double tap detection - now manages recording window
@@ -1004,9 +934,6 @@ void loop() {
       // Log recording completion
       Serial.println();  // Add a newline to separate from CSV data
       Serial.println("\nRECORDING FINISHED - " + String(currentGesture.sampleCount) + " samples collected");
-      
-      // Calculate and print features
-      calculateAndPrintFeatures();
       
       // Process the recorded data
       processGestureData(&currentGesture);
