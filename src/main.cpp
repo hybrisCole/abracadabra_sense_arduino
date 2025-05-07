@@ -719,42 +719,6 @@ void recordSensorData() {
     gyroZ = rawGyroZ;
   }
   
-  // Update correlation windows
-  accelXWindow[corrWindowIndex] = accX;
-  accelYWindow[corrWindowIndex] = accY;
-  accelZWindow[corrWindowIndex] = accZ;
-  gyroXWindow[corrWindowIndex] = gyroX;
-  gyroYWindow[corrWindowIndex] = gyroY;
-  gyroZWindow[corrWindowIndex] = gyroZ;
-  
-  corrWindowIndex = (corrWindowIndex + 1) % CORR_WINDOW_SIZE;
-  if (corrWindowIndex == 0) {
-    corrWindowFull = true;
-  }
-  
-  // Update correlation calculations
-  updateCorrelations();
-  
-  // Calculate current magnitudes
-  float currentAccMag = calculateAccMagnitude(accX, accY, accZ);
-  float currentGyroMag = calculateGyroMagnitude(gyroX, gyroY, gyroZ);
-  
-  // Detect peaks
-  if (detectPeak(currentAccMag, lastAccMag, PEAK_THRESHOLD_ACCEL, wasAccelRising)) {
-    accelPeakCount++;
-    maxAccelPeak = max(maxAccelPeak, currentAccMag);
-  }
-  if (detectPeak(currentGyroMag, lastGyroMag, PEAK_THRESHOLD_GYRO, wasGyroRising)) {
-    gyroPeakCount++;
-    maxGyroPeak = max(maxGyroPeak, currentGyroMag);
-  }
-  
-  // Update last values and rising states
-  wasAccelRising = currentAccMag > lastAccMag;
-  wasGyroRising = currentGyroMag > lastGyroMag;
-  lastAccMag = currentAccMag;
-  lastGyroMag = currentGyroMag;
-  
   // Store in current gesture structure
   currentGesture.accX[sampleCount] = accX;
   currentGesture.accY[sampleCount] = accY;
@@ -763,125 +727,72 @@ void recordSensorData() {
   currentGesture.gyroY[sampleCount] = gyroY;
   currentGesture.gyroZ[sampleCount] = gyroZ;
   
-  // Calculate data validation flags
-  bool accelSaturated = 
-    abs(accX) > ACCEL_SATURATION_THRESHOLD ||
-    abs(accY) > ACCEL_SATURATION_THRESHOLD ||
-    abs(accZ) > ACCEL_SATURATION_THRESHOLD;
-    
-  bool gyroSaturated = 
-    abs(gyroX) > GYRO_SATURATION_THRESHOLD ||
-    abs(gyroY) > GYRO_SATURATION_THRESHOLD ||
-    abs(gyroZ) > GYRO_SATURATION_THRESHOLD;
-  
-  // Combine flags into a validation code (0 = all good)
-  byte validationFlags = 0;
-  if (accelSaturated) validationFlags |= 1;  // Bit 0 for accel saturation
-  if (gyroSaturated) validationFlags |= 2;   // Bit 1 for gyro saturation
-  
-  // Update frequency analysis windows
-  accelFreqWindow[freqWindowIndex] = currentAccMag;
-  gyroFreqWindow[freqWindowIndex] = currentGyroMag;
-  
-  freqWindowIndex = (freqWindowIndex + 1) % FREQ_WINDOW_SIZE;
-  if (freqWindowIndex == 0) {
-    freqWindowFull = true;
-  }
-  
-  // Calculate frequency band energies when window is full
-  if (freqWindowFull) {
-    calculateFreqBandEnergy(accelFreqWindow, accelFreqEnergy, FREQ_WINDOW_SIZE);
-    calculateFreqBandEnergy(gyroFreqWindow, gyroFreqEnergy, FREQ_WINDOW_SIZE);
-  }
-  
-  // Update ZCR windows
-  accelXZCRWindow[zcrWindowIndex] = accX;
-  accelYZCRWindow[zcrWindowIndex] = accY;
-  accelZZCRWindow[zcrWindowIndex] = accZ;
-  gyroXZCRWindow[zcrWindowIndex] = gyroX;
-  gyroYZCRWindow[zcrWindowIndex] = gyroY;
-  gyroZZCRWindow[zcrWindowIndex] = gyroZ;
-  
-  zcrWindowIndex = (zcrWindowIndex + 1) % ZCR_WINDOW_SIZE;
-  if (zcrWindowIndex == 0) {
-    zcrWindowFull = true;
-  }
-  
-  // Calculate ZCR when window is full
-  if (zcrWindowFull) {
-    updateZCR();
-  }
-  
-  // Print in enhanced CSV format with absolute timestamp and validation flags
-  Serial.print(absoluteStartTime + elapsedTime);  // Absolute timestamp
+  // Print raw data in CSV format
+  Serial.print(absoluteStartTime + elapsedTime);  // timestamp
   Serial.print(",");
-  Serial.print(elapsedTime);  // Relative timestamp
+  Serial.print(elapsedTime);  // milliseconds
   Serial.print(",");
-  Serial.print(recordingId);  // Recording ID
+  Serial.print(recordingId);  // gesture_id
   Serial.print(",");
-  Serial.print(accX, 4);  // 4 decimal places
+  Serial.print(accX, 4);  // acc_x
   Serial.print(",");
-  Serial.print(accY, 4);
+  Serial.print(accY, 4);  // acc_y
   Serial.print(",");
-  Serial.print(accZ, 4);
+  Serial.print(accZ, 4);  // acc_z
   Serial.print(",");
-  Serial.print(gyroX, 4);
+  Serial.print(gyroX, 4);  // gyro_x
   Serial.print(",");
-  Serial.print(gyroY, 4);
+  Serial.print(gyroY, 4);  // gyro_y
   Serial.print(",");
-  Serial.print(gyroZ, 4);
+  Serial.print(gyroZ, 4);  // gyro_z
   Serial.print(",");
-  Serial.print(validationFlags);  // Data validation flags
-  Serial.print(",");
-  Serial.print(currentAccMag, 4);  // Current acceleration magnitude
-  Serial.print(",");
-  Serial.print(currentGyroMag, 4);  // Current gyroscope magnitude
-  Serial.print(",");
-  Serial.print(accelPeakCount);  // Number of acceleration peaks detected
-  Serial.print(",");
-  Serial.print(gyroPeakCount);  // Number of gyroscope peaks detected
-  Serial.print(",");
-  Serial.print(maxAccelPeak, 4);  // Maximum acceleration peak magnitude
-  Serial.print(",");
-  Serial.print(maxGyroPeak, 4);  // Maximum gyroscope peak magnitude
-  Serial.print(",");
-  Serial.print(accelCorrXY, 4);  // Correlation between X and Y acceleration
-  Serial.print(",");
-  Serial.print(accelCorrXZ, 4);  // Correlation between X and Z acceleration
-  Serial.print(",");
-  Serial.print(accelCorrYZ, 4);  // Correlation between Y and Z acceleration
-  Serial.print(",");
-  Serial.print(gyroCorrXY, 4);   // Correlation between X and Y rotation
-  Serial.print(",");
-  Serial.print(gyroCorrXZ, 4);   // Correlation between X and Z rotation
-  Serial.print(",");
-  Serial.println(gyroCorrYZ, 4); // Correlation between Y and Z rotation
-  
-  // Add frequency band energies to CSV output
-  for (int i = 0; i < NUM_FREQ_BANDS; i++) {
-    Serial.print(",");
-    Serial.print(accelFreqEnergy[i], 4);  // Accelerometer frequency band energy
-  }
-  for (int i = 0; i < NUM_FREQ_BANDS; i++) {
-    Serial.print(",");
-    Serial.print(gyroFreqEnergy[i], 4);   // Gyroscope frequency band energy
-  }
-  Serial.println();
-  
-  // Add ZCR values to CSV output
-  for (int i = 0; i < 3; i++) {
-    Serial.print(",");
-    Serial.print(accelZCR[i], 4);  // Accelerometer ZCR for each axis
-  }
-  for (int i = 0; i < 3; i++) {
-    Serial.print(",");
-    Serial.print(gyroZCR[i], 4);   // Gyroscope ZCR for each axis
-  }
-  Serial.println();
+  Serial.println(authenticationMode ? "auth" : "enroll");  // label
   
   // Increment sample count
   sampleCount++;
   currentGesture.sampleCount = sampleCount;
+}
+
+// Calculate and print features after recording is complete
+void calculateAndPrintFeatures() {
+  if (currentGesture.sampleCount == 0) {
+    Serial.println("No data to analyze");
+    return;
+  }
+
+  Serial.println("\n=== FEATURE ANALYSIS ===");
+  Serial.println("timestamp,milliseconds,gesture_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z,label");
+
+  // Process all samples
+  for (int i = 0; i < currentGesture.sampleCount; i++) {
+    float accX = currentGesture.accX[i];
+    float accY = currentGesture.accY[i];
+    float accZ = currentGesture.accZ[i];
+    float gyroX = currentGesture.gyroX[i];
+    float gyroY = currentGesture.gyroY[i];
+    float gyroZ = currentGesture.gyroZ[i];
+    
+    // Print data in CSV format
+    Serial.print(absoluteStartTime + (i * SAMPLE_RATE_MS));  // timestamp
+    Serial.print(",");
+    Serial.print(i * SAMPLE_RATE_MS);  // milliseconds
+    Serial.print(",");
+    Serial.print(recordingId);  // gesture_id
+    Serial.print(",");
+    Serial.print(accX, 4);  // acc_x
+    Serial.print(",");
+    Serial.print(accY, 4);  // acc_y
+    Serial.print(",");
+    Serial.print(accZ, 4);  // acc_z
+    Serial.print(",");
+    Serial.print(gyroX, 4);  // gyro_x
+    Serial.print(",");
+    Serial.print(gyroY, 4);  // gyro_y
+    Serial.print(",");
+    Serial.print(gyroZ, 4);  // gyro_z
+    Serial.print(",");
+    Serial.println(authenticationMode ? "auth" : "enroll");  // label
+  }
 }
 
 // Handle double tap detection - now manages recording window
@@ -1094,12 +1005,8 @@ void loop() {
       Serial.println();  // Add a newline to separate from CSV data
       Serial.println("\nRECORDING FINISHED - " + String(currentGesture.sampleCount) + " samples collected");
       
-      // Print timing statistics
-      Serial.println("Timing Statistics:");
-      Serial.print("* Target interval: "); Serial.print(sampleInterval); Serial.println(" ms");
-      Serial.print("* Min interval: "); Serial.print(minSampleInterval); Serial.println(" ms");
-      Serial.print("* Max interval: "); Serial.print(maxSampleInterval); Serial.println(" ms");
-      Serial.print("* Jitter: ±"); Serial.print((maxSampleInterval - minSampleInterval)/2.0); Serial.println(" ms");
+      // Calculate and print features
+      calculateAndPrintFeatures();
       
       // Process the recorded data
       processGestureData(&currentGesture);
