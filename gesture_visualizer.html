@@ -7,6 +7,8 @@
     <!-- Load Three.js from a reliable CDN -->
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
     <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Add SweetAlert2 for nice dialogs -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <!-- Add Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -253,21 +255,31 @@
             <div class="bg-muted text-muted-foreground p-4 rounded-md mb-4 text-sm">
                 <p class="font-semibold mb-2">Instructions:</p>
                 <ol class="space-y-1 list-decimal pl-5">
-                    <li>Paste your CSV data below. Supports format:
+                    <li>Paste your CSV data below. Supports formats:
                         <pre class="bg-secondary px-2 py-1 rounded mt-1 overflow-auto text-xs">timestamp,milliseconds,gesture_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z,label</pre>
-                        <span class="text-xs italic">Example: 13750,2300,g_11450_6153,-1.2717,1.8476,7.8114,-383.9500,645.1200,581.4200,0</span>
+                        <pre class="bg-secondary px-2 py-1 rounded mt-1 overflow-auto text-xs">rel_timestamp,recording_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z</pre>
+                        <span class="text-xs italic">Example: 22,g_1861830_7940,-0.109495,1.363948,7.783390,26.930681,-21.973976,6.129760</span>
                     </li>
-                    <li>Click "Visualize" to see the 3D animation of your gesture</li>
+                    <li>Click "Add Gesture" to add it to the visualization (multiple gestures supported)</li>
+                    <li>Each gesture will be represented by a different shape and color</li>
+                    <li>Click "Visualize All" to see all gestures running in the same scene</li>
                     <li>Use the timeline slider or play/pause controls to view the motion</li>
-                    <li>Adjust scaling factors if the motion is too small or too large</li>
-                    <li>Try enabling the "Motion Trail" option to see the path of movement</li>
                 </ol>
             </div>
             <textarea id="csvInput" placeholder="Paste your CSV data here..." class="w-full h-36 p-3 border border-input rounded-md bg-background text-foreground font-mono text-sm resize-y focus:ring-2 focus:ring-ring focus:outline-none"></textarea>
-            <div class="flex space-x-3 mt-4">
-                <button id="visualizeBtn" class="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors">Visualize</button>
-                <button id="clearBtn" class="bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors">Clear</button>
+            <div class="flex flex-wrap gap-3 mt-4">
+                <button id="addGestureBtn" class="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors">Add Gesture</button>
+                <button id="visualizeAllBtn" class="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors">Visualize All</button>
+                <button id="clearBtn" class="bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors">Clear All</button>
                 <button id="sampleBtn" class="bg-secondary text-secondary-foreground px-4 py-2 rounded-md hover:bg-secondary/90 transition-colors">Load Sample Data</button>
+            </div>
+        </div>
+
+        <!-- Device List section -->
+        <div id="deviceListSection" class="bg-card rounded-lg shadow-md p-6 mb-6 border border-border hidden">
+            <h2 class="text-xl font-bold mb-4">Loaded Gestures</h2>
+            <div id="deviceList" class="space-y-2">
+                <!-- Devices will be added here dynamically -->
             </div>
         </div>
 
@@ -493,29 +505,20 @@
         }
 
         // Global variables
-        let scene, camera, renderer, device, controls;
+        let scene, camera, renderer, controls;
         let gridHelper, axesHelper; // Add references to grid and axes
         let gridRotationGroup; // Group to hold grid and axes for rotation
-        let previousDeviceRotation = new THREE.Euler(); // Store previous rotation
-        let previousDevicePosition = new THREE.Vector3(); // Store previous position
-        let shadowTrailObjects = []; // Array to store shadowy trail objects
+        let devices = []; // Array to store all device objects
+        let imuDataSets = []; // Array to store multiple IMU data sets
         let lastTrailTime = 0; // Track when we last added a trail object
-        let imuData = [];
-        let metadata = {
-            duration: '',
-            sampleRate: '',
-            imuModel: '',
-            accRange: '',
-            gyroRange: '',
-            filter: '',
-            samplingNotes: []
-        };
         let animationState = {
             playing: false,
             frame: 0,
             speed: 1.0,
             lastTime: 0
         };
+        let deviceShapes = ['cube', 'star', 'sphere', 'cone', 'torus']; // Available shapes for devices
+        let deviceColors = [0xff3333, 0x33ff33, 0x3333ff, 0xff33ff, 0xffff33]; // Colors for devices
         let motionTrail = [];
 
         // Initialize 3D scene
@@ -559,9 +562,6 @@
             axesHelper = new THREE.AxesHelper(3);
             gridRotationGroup.add(axesHelper);
             
-            // Create device representation
-            createDevice();
-            
             // Add orbit controls
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
@@ -578,34 +578,61 @@
             animate();
         }
         
-        // Create device geometry
-        function createDevice() {
+        // Create device geometry with specified shape and color
+        function createDevice(shapeType = 'cube', colorHex = 0xff3333, index = 0) {
             // Create a group to hold the device parts
-            device = new THREE.Group();
+            const deviceObj = new THREE.Group();
+            deviceObj.userData = {
+                index: index,
+                shape: shapeType,
+                color: colorHex,
+                trailObjects: [],
+                previousRotation: new THREE.Euler(),
+                previousPosition: new THREE.Vector3(),
+                motionTrail: []
+            };
             
-            // Create main body - Quake 3 Arena style cube
-            const bodyGeometry = new THREE.BoxGeometry(1, 1, 1);
+            // Create main body based on shape type
+            let bodyGeometry;
+            let bodyScale = new THREE.Vector3(1, 1, 1);
             
-            // Create a texture loader
-            const textureLoader = new THREE.TextureLoader();
+            switch(shapeType) {
+                case 'star':
+                    // Create a star-like shape using tetrahedron
+                    bodyGeometry = new THREE.TetrahedronGeometry(0.7, 1);
+                    break;
+                case 'sphere':
+                    bodyGeometry = new THREE.SphereGeometry(0.5, 16, 16);
+                    break;
+                case 'cone':
+                    bodyGeometry = new THREE.ConeGeometry(0.5, 1, 16);
+                    break;
+                case 'torus':
+                    bodyGeometry = new THREE.TorusGeometry(0.5, 0.2, 16, 32);
+                    break;
+                case 'cube':
+                default:
+                    bodyGeometry = new THREE.BoxGeometry(1, 1, 1);
+                    break;
+            }
             
-            // Create a Quake 3 Arena style material
+            // Create a Quake 3 Arena style material with the specified color
             const bodyMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0xff3333,     // Base scarlet color
-                metalness: 0.9,      // Very metallic
-                roughness: 0.3,      // Slight roughness for better light reflections
-                emissive: 0x660000,  // Stronger red glow
+                color: colorHex,
+                metalness: 0.9,
+                roughness: 0.3,
+                emissive: new THREE.Color(colorHex).multiplyScalar(0.3),
                 emissiveIntensity: 0.5
             });
             
             const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-            device.add(body);
+            deviceObj.add(body);
             
-            // Add glowing edges - a hallmark of Quake 3 Arena aesthetics
+            // Add glowing edges
             const edgeGeometry = new THREE.EdgesGeometry(bodyGeometry);
             const edgeMaterial = new THREE.LineBasicMaterial({ 
-                color: 0xff9900,  // Orange-yellow glow
-                linewidth: 2      // Thicker lines (note: may not work in all browsers)
+                color: 0xff9900,
+                linewidth: 2
             });
             const edges = new THREE.LineSegments(edgeGeometry, edgeMaterial);
             body.add(edges);
@@ -622,7 +649,7 @@
             );
             arrowX.position.set(0.7, 0, 0);
             arrowX.rotation.z = -Math.PI / 2;
-            device.add(arrowX);
+            deviceObj.add(arrowX);
             
             // Right arrow (Y axis - green)
             const arrowY = new THREE.Mesh(
@@ -630,7 +657,7 @@
                 new THREE.MeshPhongMaterial({ color: 0x00ff00 })
             );
             arrowY.position.set(0, 0.7, 0);
-            device.add(arrowY);
+            deviceObj.add(arrowY);
             
             // Up arrow (Z axis - blue)
             const arrowZ = new THREE.Mesh(
@@ -638,10 +665,53 @@
                 new THREE.MeshPhongMaterial({ color: 0x0000ff })
             );
             arrowZ.position.set(0, 0, 0.7);
-            device.add(arrowZ);
+            deviceObj.add(arrowZ);
             
             // Add device to scene
-            scene.add(device);
+            scene.add(deviceObj);
+            
+            return deviceObj;
+        }
+
+        // Create or update device based on index
+        function getOrCreateDevice(index) {
+            if (index < devices.length) {
+                return devices[index]; // Return existing device
+            } else {
+                // Create new device with different shape and color
+                const shapeType = deviceShapes[index % deviceShapes.length];
+                const colorHex = deviceColors[index % deviceColors.length];
+                const newDevice = createDevice(shapeType, colorHex, index);
+                devices.push(newDevice);
+                return newDevice;
+            }
+        }
+
+        // Remove all devices from scene
+        function clearAllDevices() {
+            devices.forEach(device => {
+                // Clean up trail objects if any
+                if (device.userData.trailObjects) {
+                    device.userData.trailObjects.forEach(obj => {
+                        scene.remove(obj);
+                        if (obj.material) obj.material.dispose();
+                        if (obj.geometry) obj.geometry.dispose();
+                    });
+                }
+                
+                // Remove device itself
+                scene.remove(device);
+                
+                // Dispose resources
+                device.children.forEach(child => {
+                    if (child.material) child.material.dispose();
+                    if (child.geometry) child.geometry.dispose();
+                });
+            });
+            
+            // Clear arrays
+            devices = [];
+            imuDataSets = [];
         }
         
         // Animation loop
@@ -652,53 +722,55 @@
                 controls.update();
             }
             
-            // Apply pulsing effect to the cube if it exists
-            if (device && device.children[0] && device.children[0].userData.pulseTime !== undefined) {
-                const body = device.children[0];
-                
-                // Update pulse time
-                body.userData.pulseTime += 0.02 * body.userData.pulseDirection;
-                
-                // Change direction when limits reached
-                if (body.userData.pulseTime > 1) {
-                    body.userData.pulseTime = 1;
-                    body.userData.pulseDirection = -1;
-                } else if (body.userData.pulseTime < 0) {
-                    body.userData.pulseTime = 0;
-                    body.userData.pulseDirection = 1;
-                }
-                
-                // Apply pulse effect to emissive intensity
-                if (body.material && body.material.emissiveIntensity !== undefined) {
-                    const baseIntensity = 0.5;
-                    const pulseAmount = 0.3;
-                    body.material.emissiveIntensity = baseIntensity + Math.sin(body.userData.pulseTime * Math.PI) * pulseAmount;
+            // Apply pulsing effect to all devices
+            devices.forEach(device => {
+                if (device.children[0] && device.children[0].userData.pulseTime !== undefined) {
+                    const body = device.children[0];
                     
-                    // Update edges glow color based on pulse
-                    if (body.children[0] && body.children[0].material) {
-                        const edgeIntensity = 0.7 + Math.sin(body.userData.pulseTime * Math.PI) * 0.3;
-                        body.children[0].material.color.setRGB(1, 0.6 * edgeIntensity, 0);
+                    // Update pulse time
+                    body.userData.pulseTime += 0.02 * body.userData.pulseDirection;
+                    
+                    // Change direction when limits reached
+                    if (body.userData.pulseTime > 1) {
+                        body.userData.pulseTime = 1;
+                        body.userData.pulseDirection = -1;
+                    } else if (body.userData.pulseTime < 0) {
+                        body.userData.pulseTime = 0;
+                        body.userData.pulseDirection = 1;
+                    }
+                    
+                    // Apply pulse effect to emissive intensity
+                    if (body.material && body.material.emissiveIntensity !== undefined) {
+                        const baseIntensity = 0.5;
+                        const pulseAmount = 0.3;
+                        body.material.emissiveIntensity = baseIntensity + Math.sin(body.userData.pulseTime * Math.PI) * pulseAmount;
+                        
+                        // Update edges glow color based on pulse
+                        if (body.children[0] && body.children[0].material) {
+                            const edgeIntensity = 0.7 + Math.sin(body.userData.pulseTime * Math.PI) * 0.3;
+                            body.children[0].material.color.setRGB(1, 0.6 * edgeIntensity, 0);
+                        }
                     }
                 }
-            }
+            });
             
-            // Update shadowy trail effects
+            // Handle shadow trails for all devices
             const enableShadowTrail = document.getElementById('enableShadowTrail').checked;
-            if (enableShadowTrail && device && animationState.playing) {
+            if (enableShadowTrail && devices.length > 0 && animationState.playing) {
                 // Create shadowy trail objects periodically
                 if (time - lastTrailTime > 150) { // Create a new shadow every 150ms
-                    createShadowTrail();
+                    devices.forEach(device => createShadowTrail(device));
                     lastTrailTime = time;
                 }
                 
                 // Update existing shadow trails
-                updateShadowTrails(time);
-            } else if (!enableShadowTrail && shadowTrailObjects.length > 0) {
+                devices.forEach(device => updateShadowTrails(device, time));
+            } else if (!enableShadowTrail) {
                 // Remove all shadow trail objects if the feature is disabled
-                clearShadowTrails();
+                devices.forEach(device => clearShadowTrails(device));
             }
             
-            if (animationState.playing && imuData.length > 0) {
+            if (animationState.playing && imuDataSets.length > 0) {
                 // Calculate time delta
                 const delta = time - (animationState.lastTime || time);
                 animationState.lastTime = time;
@@ -706,18 +778,31 @@
                 // Update frame based on playback speed
                 animationState.frame += (delta / 20) * animationState.speed;
                 
+                // Find the longest data set
+                let maxFrames = 0;
+                imuDataSets.forEach(dataSet => {
+                    maxFrames = Math.max(maxFrames, dataSet.length);
+                });
+                
                 // If reached the end, loop back to beginning
-                if (Math.floor(animationState.frame) >= imuData.length) {
+                if (Math.floor(animationState.frame) >= maxFrames) {
                     animationState.frame = 0;
-                    previousDeviceRotation.set(0, 0, 0);
-                    previousDevicePosition.set(0, 0, 0);
+                    devices.forEach(device => {
+                        device.userData.previousRotation = new THREE.Euler(0, 0, 0);
+                        device.userData.previousPosition = new THREE.Vector3(0, 0, 0);
+                    });
                 }
                 
-                // Apply current frame data to device
-                applyFrameData(Math.floor(animationState.frame));
+                // Apply current frame data to all devices
+                const frameIndex = Math.floor(animationState.frame);
+                for (let i = 0; i < imuDataSets.length; i++) {
+                    if (i < devices.length && frameIndex < imuDataSets[i].length) {
+                        applyFrameData(devices[i], imuDataSets[i], frameIndex);
+                    }
+                }
                 
                 // Update timeline slider and frame counter
-                updateFrameIndicator();
+                updateFrameIndicator(maxFrames);
                 
                 // Update status
                 updateStatus();
@@ -727,21 +812,21 @@
         }
         
         // Create a shadow trail object at the current device position
-        function createShadowTrail() {
+        function createShadowTrail(device) {
             if (!device || !device.children[0]) return;
             
-            // Create a clone of the device's main cube body
-            const originalCube = device.children[0];
-            const shadowGeometry = originalCube.geometry.clone();
+            // Create a clone of the device's main body
+            const originalBody = device.children[0];
+            const shadowGeometry = originalBody.geometry.clone();
             
             // Create a faded, translucent version of the original material
             const shadowMaterial = new THREE.MeshStandardMaterial({
-                color: 0x6600cc,      // Purple-blue color like Dark Templar
+                color: new THREE.Color(device.userData.color).lerp(new THREE.Color(0x6600cc), 0.5),
                 metalness: 0.7,
                 roughness: 0.3,
                 transparent: true,
-                opacity: 0.7,         // Start semi-transparent
-                emissive: 0x330066,
+                opacity: 0.7,
+                emissive: new THREE.Color(device.userData.color).multiplyScalar(0.2),
                 emissiveIntensity: 0.5
             });
             
@@ -759,12 +844,12 @@
             
             // Add to scene and tracking array
             scene.add(shadowMesh);
-            shadowTrailObjects.push(shadowMesh);
+            device.userData.trailObjects.push(shadowMesh);
             
             // Limit the number of trail objects
-            if (shadowTrailObjects.length > 10) {
+            if (device.userData.trailObjects.length > 10) {
                 // Remove the oldest shadow
-                const oldestShadow = shadowTrailObjects.shift();
+                const oldestShadow = device.userData.trailObjects.shift();
                 scene.remove(oldestShadow);
                 if (oldestShadow.material) {
                     oldestShadow.material.dispose();
@@ -775,12 +860,12 @@
             }
         }
         
-        // Update all shadow trail objects (fade them out over time)
-        function updateShadowTrails(currentTime) {
+        // Update shadow trail objects for a specific device
+        function updateShadowTrails(device, currentTime) {
             const shadowsToRemove = [];
             
-            for (let i = 0; i < shadowTrailObjects.length; i++) {
-                const shadow = shadowTrailObjects[i];
+            for (let i = 0; i < device.userData.trailObjects.length; i++) {
+                const shadow = device.userData.trailObjects[i];
                 const age = currentTime - shadow.userData.creationTime;
                 const lifePercentage = age / shadow.userData.lifespan;
                 
@@ -800,7 +885,7 @@
             // Remove shadows marked for deletion (in reverse order to avoid index issues)
             for (let i = shadowsToRemove.length - 1; i >= 0; i--) {
                 const index = shadowsToRemove[i];
-                const shadow = shadowTrailObjects[index];
+                const shadow = device.userData.trailObjects[index];
                 
                 // Remove from scene and dispose resources
                 scene.remove(shadow);
@@ -808,44 +893,45 @@
                 if (shadow.geometry) shadow.geometry.dispose();
                 
                 // Remove from array
-                shadowTrailObjects.splice(index, 1);
+                device.userData.trailObjects.splice(index, 1);
             }
         }
         
-        // Clear all shadow trail objects
-        function clearShadowTrails() {
+        // Clear all shadow trail objects for a specific device
+        function clearShadowTrails(device) {
             // Remove all shadows from scene and dispose resources
-            shadowTrailObjects.forEach(shadow => {
+            device.userData.trailObjects.forEach(shadow => {
                 scene.remove(shadow);
                 if (shadow.material) shadow.material.dispose();
                 if (shadow.geometry) shadow.geometry.dispose();
             });
             
             // Clear the array
-            shadowTrailObjects = [];
+            device.userData.trailObjects = [];
         }
         
         // Update the frame indicator and timeline slider
-        function updateFrameIndicator() {
+        function updateFrameIndicator(maxFrames) {
             const frameIndicator = document.getElementById('frameIndicator');
             const timelineSlider = document.getElementById('timelineSlider');
             
-            if (imuData.length > 0) {
+            if (maxFrames > 0) {
                 const currentFrame = Math.floor(animationState.frame);
-                frameIndicator.textContent = `${currentFrame + 1}/${imuData.length}`;
+                frameIndicator.textContent = `${currentFrame + 1}/${maxFrames}`;
                 
                 // Update slider position without triggering change event
-                timelineSlider.value = (currentFrame / (imuData.length - 1)) * 100;
+                timelineSlider.value = (currentFrame / (maxFrames - 1)) * 100;
             } else {
                 frameIndicator.textContent = "0/0";
                 timelineSlider.value = 0;
             }
         }
         
-        // Update motion trail
-        function updateMotionTrail(frameIndex) {
+        // Update motion trail for a specific device
+        function updateMotionTrail(device, frameIndex) {
             const trailLength = parseInt(document.getElementById('trailLength').value) || 20;
             const currentTime = performance.now();
+            const motionTrail = device.userData.motionTrail;
             
             // Add current position to trail with timestamp
             const position = device.position.clone();
@@ -856,16 +942,16 @@
             
             // Remove old positions if trail is too long
             if (motionTrail.length > 100) { // Keep more points for fade-out effect
-                motionTrail = motionTrail.slice(motionTrail.length - 100);
+                device.userData.motionTrail = motionTrail.slice(motionTrail.length - 100);
             }
             
             // Remove any existing trail line
-            const existingLine = scene.getObjectByName("motion_trail_line");
+            const existingLine = scene.getObjectByName(`motion_trail_line_${device.userData.index}`);
             if (existingLine) {
                 scene.remove(existingLine);
             }
             
-            const glowLine = scene.getObjectByName("motion_trail_glow");
+            const glowLine = scene.getObjectByName(`motion_trail_glow_${device.userData.index}`);
             if (glowLine) {
                 scene.remove(glowLine);
             }
@@ -892,8 +978,13 @@
                     // Calculate opacity based on age (newer points are more opaque)
                     const opacity = Math.max(0, 1 - (age / fadeTime));
                     
-                    // Create color with fading effect - cyan that fades out
-                    colors.push(new THREE.Color(0, 1 * opacity, 1 * opacity));
+                    // Create color from device's color
+                    const deviceColor = new THREE.Color(device.userData.color);
+                    colors.push(new THREE.Color(
+                        deviceColor.r * opacity, 
+                        deviceColor.g * opacity, 
+                        deviceColor.b * opacity
+                    ));
                 });
                 
                 if (points.length < 2) return; // Need at least 2 points to draw a line
@@ -920,7 +1011,7 @@
                 
                 // Create line mesh
                 const line = new THREE.Line(lineGeometry, lineMaterial);
-                line.name = "motion_trail_line";
+                line.name = `motion_trail_line_${device.userData.index}`;
                 scene.add(line);
                 
                 // Add glow effect with wider line
@@ -932,29 +1023,29 @@
                 });
                 
                 const glowLine = new THREE.Line(lineGeometry, glowMaterial);
-                glowLine.name = "motion_trail_glow";
+                glowLine.name = `motion_trail_glow_${device.userData.index}`;
                 scene.add(glowLine);
             }
         }
         
-        // Clear motion trail
-        function clearMotionTrail() {
+        // Clear motion trail for a specific device
+        function clearMotionTrail(device) {
             // Remove trail line from scene
-            const trailLine = scene.getObjectByName("motion_trail_line");
+            const trailLine = scene.getObjectByName(`motion_trail_line_${device.userData.index}`);
             if (trailLine) scene.remove(trailLine);
             
-            const glowLine = scene.getObjectByName("motion_trail_glow");
+            const glowLine = scene.getObjectByName(`motion_trail_glow_${device.userData.index}`);
             if (glowLine) scene.remove(glowLine);
             
             // Clear the array
-            motionTrail = [];
+            device.userData.motionTrail = [];
         }
         
-        // Apply IMU data to device with smoothing
-        function applyFrameData(frameIndex) {
-            if (frameIndex < 0 || frameIndex >= imuData.length) return;
+        // Apply IMU data to a specific device with smoothing
+        function applyFrameData(device, dataSet, frameIndex) {
+            if (frameIndex < 0 || frameIndex >= dataSet.length) return;
             
-            const frame = imuData[frameIndex];
+            const frame = dataSet[frameIndex];
             
             // Get current visualization settings
             const initialX = parseFloat(document.getElementById('initialX').value) || 0;
@@ -973,6 +1064,9 @@
             const enableGyro = document.getElementById('enableGyro').checked;
             const enableSmoothing = document.getElementById('enableSmoothing').checked;
             
+            // Add offset for this device based on index (to avoid overlapping)
+            const deviceOffset = device.userData.index * 2;
+            
             // Calculate target rotation
             let targetRotX = initialRotX;
             let targetRotY = initialRotY;
@@ -983,14 +1077,14 @@
                 const toRadians = Math.PI / 180;
                 
                 for (let i = 0; i <= frameIndex; i++) {
-                    targetRotX += imuData[i].gyroX * gyroScale * toRadians;
-                    targetRotY += imuData[i].gyroY * gyroScale * toRadians;
-                    targetRotZ += imuData[i].gyroZ * gyroScale * toRadians;
+                    targetRotX += dataSet[i].gyroX * gyroScale * toRadians;
+                    targetRotY += dataSet[i].gyroY * gyroScale * toRadians;
+                    targetRotZ += dataSet[i].gyroZ * gyroScale * toRadians;
                 }
             }
             
             // Calculate target position
-            let targetPosX = initialX;
+            let targetPosX = initialX + deviceOffset;
             let targetPosY = initialY;
             let targetPosZ = initialZ;
             
@@ -1002,33 +1096,35 @@
             
             if (enableSmoothing) {
                 // Apply rotation with smoothing (lerp between previous and target)
-                if (previousDeviceRotation.x !== undefined) {
+                const previousRotation = device.userData.previousRotation;
+                if (previousRotation.x !== undefined) {
                     const smoothFactor = 0.3; // Adjust for more/less smoothing (0-1)
                     
-                    device.rotation.x = previousDeviceRotation.x + (targetRotX - previousDeviceRotation.x) * smoothFactor;
-                    device.rotation.y = previousDeviceRotation.y + (targetRotY - previousDeviceRotation.y) * smoothFactor;
-                    device.rotation.z = previousDeviceRotation.z + (targetRotZ - previousDeviceRotation.z) * smoothFactor;
+                    device.rotation.x = previousRotation.x + (targetRotX - previousRotation.x) * smoothFactor;
+                    device.rotation.y = previousRotation.y + (targetRotY - previousRotation.y) * smoothFactor;
+                    device.rotation.z = previousRotation.z + (targetRotZ - previousRotation.z) * smoothFactor;
                     
                     // Store new rotation for next frame
-                    previousDeviceRotation.set(device.rotation.x, device.rotation.y, device.rotation.z);
+                    previousRotation.set(device.rotation.x, device.rotation.y, device.rotation.z);
                 } else {
                     device.rotation.set(targetRotX, targetRotY, targetRotZ);
-                    previousDeviceRotation.set(targetRotX, targetRotY, targetRotZ);
+                    previousRotation.set(targetRotX, targetRotY, targetRotZ);
                 }
                 
                 // Apply position with smoothing
-                if (previousDevicePosition.x !== undefined) {
+                const previousPosition = device.userData.previousPosition;
+                if (previousPosition.x !== undefined) {
                     const smoothFactor = 0.3; // Adjust for more/less smoothing (0-1)
                     
-                    device.position.x = previousDevicePosition.x + (targetPosX - previousDevicePosition.x) * smoothFactor;
-                    device.position.y = previousDevicePosition.y + (targetPosY - previousDevicePosition.y) * smoothFactor;
-                    device.position.z = previousDevicePosition.z + (targetPosZ - previousDevicePosition.z) * smoothFactor;
+                    device.position.x = previousPosition.x + (targetPosX - previousPosition.x) * smoothFactor;
+                    device.position.y = previousPosition.y + (targetPosY - previousPosition.y) * smoothFactor;
+                    device.position.z = previousPosition.z + (targetPosZ - previousPosition.z) * smoothFactor;
                     
                     // Store new position for next frame
-                    previousDevicePosition.set(device.position.x, device.position.y, device.position.z);
+                    previousPosition.set(device.position.x, device.position.y, device.position.z);
                 } else {
                     device.position.set(targetPosX, targetPosY, targetPosZ);
-                    previousDevicePosition.set(targetPosX, targetPosY, targetPosZ);
+                    previousPosition.set(targetPosX, targetPosY, targetPosZ);
                 }
             } else {
                 // Apply raw data directly without smoothing
@@ -1036,14 +1132,14 @@
                 device.position.set(targetPosX, targetPosY, targetPosZ);
                 
                 // Update previous values to match current (prevents jump when enabling smoothing)
-                previousDeviceRotation.set(targetRotX, targetRotY, targetRotZ);
-                previousDevicePosition.set(targetPosX, targetPosY, targetPosZ);
+                device.userData.previousRotation.set(targetRotX, targetRotY, targetRotZ);
+                device.userData.previousPosition.set(targetPosX, targetPosY, targetPosZ);
             }
             
             // Handle motion trail if enabled
             const trailEnabled = document.getElementById('trailEnabled').checked;
             if (trailEnabled && frameIndex > 0) {
-                updateMotionTrail(frameIndex);
+                updateMotionTrail(device, frameIndex);
             }
         }
         
@@ -1120,29 +1216,124 @@
             }
         }
         
-        // Parse CSV data
-        function parseCSVData(csvText) {
+        // Update status display
+        function updateStatus() {
+            if (imuDataSets.length === 0) {
+                document.getElementById('status').textContent = 'No data loaded';
+                return;
+            }
+            
+            const frameIndex = Math.floor(animationState.frame);
+            
+            let statusText = `Frame: ${frameIndex + 1} | Devices: ${devices.length}`;
+            
+            // Show information for the first device as an example
+            if (imuDataSets[0].length > frameIndex) {
+                const frame = imuDataSets[0][frameIndex];
+                
+                // Display appropriate time info depending on data format
+                if (frame.hasOwnProperty('milliseconds')) {
+                    // Standard format with milliseconds
+                    statusText += ` | Time: ${frame.timestamp}:${frame.milliseconds}ms`;
+                    
+                    // Update gesture ID display if available
+                    if (frame.gestureId) {
+                        document.getElementById('currentGestureId').textContent = frame.gestureId;
+                        document.getElementById('currentGestureDisplay').classList.remove('hidden');
+                    }
+                } else if (frame.hasOwnProperty('gestureId')) {
+                    // Rel timestamp format with recording_id
+                    statusText += ` | Time: ${frame.timestamp}ms | Gesture: ${frame.gestureId}`;
+                    document.getElementById('currentGestureId').textContent = frame.gestureId;
+                    document.getElementById('currentGestureDisplay').classList.remove('hidden');
+                    
+                    // Update metadata section too
+                    document.getElementById('metaGestureId').textContent = frame.gestureId;
+                    document.getElementById('gestureIdContainer').classList.remove('hidden');
+                } else {
+                    // Old format with just timestamp
+                    statusText += ` | Time: ${frame.timestamp}ms`;
+                    document.getElementById('currentGestureDisplay').classList.add('hidden');
+                    document.getElementById('gestureIdContainer').classList.add('hidden');
+                }
+                
+                // Show acceleration and gyro values
+                const enableAcc = document.getElementById('enableAcc').checked;
+                const enableGyro = document.getElementById('enableGyro').checked;
+                
+                if (enableAcc) {
+                    statusText += ` | Acc: (${frame.accX.toFixed(4)}, ${frame.accY.toFixed(4)}, ${frame.accZ.toFixed(4)})`;
+                } else {
+                    statusText += ' | Acc: [muted]';
+                }
+                
+                if (enableGyro) {
+                    statusText += ` | Gyro: (${frame.gyroX.toFixed(4)}, ${frame.gyroY.toFixed(4)}, ${frame.gyroZ.toFixed(4)})`;
+                } else {
+                    statusText += ' | Gyro: [muted]';
+                }
+                
+                // Add label if available
+                if (frame.hasOwnProperty('label')) {
+                    statusText += ` | Label: ${frame.label}`;
+                }
+            }
+            
+            document.getElementById('status').textContent = statusText;
+        }
+        
+        // Reset all data and UI
+        function resetData() {
+            clearAllDevices();
+            imuDataSets = [];
+            animationState.frame = 0;
+            animationState.playing = false;
+            
+            document.getElementById('metadataSection').classList.add('hidden');
+            document.getElementById('status').textContent = 'Data cleared';
+            document.getElementById('deviceList').innerHTML = '';
+        }
+        
+        // Parse CSV data and add to the visualization
+        function parseCSVData(csvText, deviceIndex = 0) {
             // First try to extract metadata
             parseMetadata(csvText);
             
-            // Now parse the actual CSV data - accept both formats
-            // Check for old format first
+            // Now parse the actual CSV data
+            // Check for the format in the header
+            const hasRelTimestamp = csvText.includes('rel_timestamp,recording_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z');
             const isOldFormat = csvText.includes('timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z');
+            const isNewFormat = csvText.includes('timestamp,milliseconds,gesture_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z,label');
+            
             // Split lines regardless of format
             const lines = csvText.trim().split('\n');
             
-            imuData = [];
+            const newDataSet = [];
             
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim();
                 if (!line || line.startsWith('*') || line.startsWith('-') || 
-                    line.startsWith('RECORDING') || line.startsWith('timestamp')) continue;
+                    line.startsWith('RECORDING') || line.startsWith('timestamp') || 
+                    line.startsWith('rel_timestamp')) continue;
                 
                 const values = line.split(',');
                 
-                if (isOldFormat && values.length >= 7) {
+                if (hasRelTimestamp && values.length >= 8) {
+                    // Format: rel_timestamp,recording_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z
+                    newDataSet.push({
+                        timestamp: parseFloat(values[0]), // rel_timestamp
+                        gestureId: values[1], // recording_id
+                        accX: parseFloat(values[2]),
+                        accY: parseFloat(values[3]),
+                        accZ: parseFloat(values[4]),
+                        gyroX: parseFloat(values[5]),
+                        gyroY: parseFloat(values[6]),
+                        gyroZ: parseFloat(values[7])
+                    });
+                }
+                else if (isOldFormat && values.length >= 7) {
                     // Old format: timestamp,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z
-                    imuData.push({
+                    newDataSet.push({
                         timestamp: parseFloat(values[0]),
                         accX: parseFloat(values[1]),
                         accY: parseFloat(values[2]),
@@ -1152,9 +1343,9 @@
                         gyroZ: parseFloat(values[6])
                     });
                 } 
-                else if (!isOldFormat && values.length >= 10) {
+                else if (isNewFormat && values.length >= 10) {
                     // New format: timestamp,milliseconds,gesture_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z,label
-                    imuData.push({
+                    newDataSet.push({
                         timestamp: parseFloat(values[0]),
                         milliseconds: parseFloat(values[1]),
                         gestureId: values[2],
@@ -1169,108 +1360,109 @@
                 }
             }
             
-            // Update the settings based on data format
-            if (!isOldFormat && imuData.length > 0) {
-                // For the new format, we need smaller scaling factors since values are larger
-                document.getElementById('accScale').value = "0.2";
-                document.getElementById('gyroScale').value = "0.0015";
-            } else if (isOldFormat && imuData.length > 0) {
-                // For the old format, use the original scaling
-                document.getElementById('accScale').value = "0.5";
-                document.getElementById('gyroScale').value = "0.01";
-            }
-            
-            animationState.frame = 0;
-            document.getElementById('status').textContent = `Loaded ${imuData.length} frames of data`;
-            
-            return imuData.length > 0;
-        }
-        
-        // Update status display
-        function updateStatus() {
-            if (imuData.length === 0) {
-                document.getElementById('status').textContent = 'No data loaded';
-                return;
-            }
-            
-            const frameIndex = Math.floor(animationState.frame);
-            const frame = imuData[frameIndex];
-            
-            const enableAcc = document.getElementById('enableAcc').checked;
-            const enableGyro = document.getElementById('enableGyro').checked;
-            
-            let statusText = "";
-            
-            // Display appropriate time info depending on data format
-            if (frame.hasOwnProperty('milliseconds')) {
-                // New format
-                statusText = `Frame: ${frameIndex + 1}/${imuData.length} | Time: ${frame.timestamp}:${frame.milliseconds}ms`;
-                
-                // Update gesture ID display
-                if (frame.gestureId) {
-                    statusText += ` | Gesture: ${frame.gestureId}`;
-                    document.getElementById('currentGestureId').textContent = frame.gestureId;
-                    document.getElementById('currentGestureDisplay').classList.remove('hidden');
-                    
-                    // Update metadata section too
-                    document.getElementById('metaGestureId').textContent = frame.gestureId;
-                    document.getElementById('gestureIdContainer').classList.remove('hidden');
+            if (newDataSet.length > 0) {
+                // Adjust scaling factors based on the data format
+                if (hasRelTimestamp) {
+                    document.getElementById('accScale').value = "0.4";
+                    document.getElementById('gyroScale').value = "0.002";
                 }
-            } else {
-                // Old format
-                statusText = `Frame: ${frameIndex + 1}/${imuData.length} | Time: ${frame.timestamp}ms`;
-                document.getElementById('currentGestureDisplay').classList.add('hidden');
-                document.getElementById('gestureIdContainer').classList.add('hidden');
+                
+                // Add the new data set
+                imuDataSets[deviceIndex] = newDataSet;
+                
+                // Create or update the device
+                getOrCreateDevice(deviceIndex);
+                
+                // Update the timeline slider max value based on the longest data set
+                let maxFrames = 0;
+                imuDataSets.forEach(dataSet => {
+                    maxFrames = Math.max(maxFrames, dataSet.length);
+                });
+                
+                const timelineSlider = document.getElementById('timelineSlider');
+                timelineSlider.max = maxFrames - 1;
+                
+                // Update device list in UI
+                updateDeviceList();
+                
+                // Update status
+                document.getElementById('status').textContent = `Device ${deviceIndex + 1}: Loaded ${newDataSet.length} frames of data`;
+                
+                return true;
             }
             
-            if (enableAcc) {
-                statusText += ` | Acc: (${frame.accX.toFixed(2)}, ${frame.accY.toFixed(2)}, ${frame.accZ.toFixed(2)})`;
-            } else {
-                statusText += ' | Acc: [muted]';
-            }
-            
-            if (enableGyro) {
-                statusText += ` | Gyro: (${frame.gyroX.toFixed(2)}, ${frame.gyroY.toFixed(2)}, ${frame.gyroZ.toFixed(2)})`;
-            } else {
-                statusText += ' | Gyro: [muted]';
-            }
-            
-            // Add label if available
-            if (frame.hasOwnProperty('label')) {
-                statusText += ` | Label: ${frame.label}`;
-            }
-            
-            document.getElementById('status').textContent = statusText;
+            return false;
         }
         
-        // Reset all data and UI
-        function resetData() {
-            imuData = [];
-            metadata = {
-                duration: '',
-                sampleRate: '',
-                imuModel: '',
-                accRange: '',
-                gyroRange: '',
-                filter: '',
-                samplingNotes: []
-            };
-            animationState.frame = 0;
-            animationState.playing = false;
+        // Update the list of loaded devices in the UI
+        function updateDeviceList() {
+            const deviceList = document.getElementById('deviceList');
+            deviceList.innerHTML = '';
             
-            document.getElementById('metadataSection').classList.add('hidden');
-            document.getElementById('status').textContent = 'Data cleared';
-            
-            // Reset device position and rotation
-            if (device) {
-                device.position.set(0, 0, 0);
-                device.rotation.set(0, 0, 0);
-            }
-            
-            // Clear motion trail
-            clearMotionTrail();
+            devices.forEach((device, index) => {
+                const deviceItem = document.createElement('div');
+                deviceItem.className = 'flex items-center justify-between p-2 mb-2 bg-card rounded-md border border-border';
+                
+                // Create color indicator
+                const colorBox = document.createElement('div');
+                colorBox.className = 'w-4 h-4 mr-2 rounded-sm';
+                colorBox.style.backgroundColor = '#' + device.userData.color.toString(16).padStart(6, '0');
+                
+                // Create device info
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'flex-1';
+                nameSpan.textContent = `Device ${index + 1} (${device.userData.shape})`;
+                
+                // Create remove button
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'ml-2 text-xs px-2 py-1 bg-destructive text-destructive-foreground rounded-md hover:bg-destructive/90 transition-colors';
+                removeBtn.textContent = 'Remove';
+                removeBtn.onclick = function() {
+                    removeDevice(index);
+                };
+                
+                // Assemble
+                deviceItem.appendChild(colorBox);
+                deviceItem.appendChild(nameSpan);
+                deviceItem.appendChild(removeBtn);
+                deviceList.appendChild(deviceItem);
+            });
         }
         
+        // Remove a specific device
+        function removeDevice(index) {
+            if (index >= 0 && index < devices.length) {
+                // Remove device from scene
+                const device = devices[index];
+                
+                // Clean up trail objects
+                if (device.userData.trailObjects) {
+                    device.userData.trailObjects.forEach(obj => {
+                        scene.remove(obj);
+                        if (obj.material) obj.material.dispose();
+                        if (obj.geometry) obj.geometry.dispose();
+                    });
+                }
+                
+                // Remove device itself
+                scene.remove(device);
+                
+                // Remove from arrays
+                devices.splice(index, 1);
+                imuDataSets.splice(index, 1);
+                
+                // Update device list
+                updateDeviceList();
+                
+                // Update status
+                if (devices.length === 0) {
+                    document.getElementById('status').textContent = 'No data loaded';
+                } else {
+                    document.getElementById('status').textContent = `Removed device ${index + 1}. ${devices.length} device(s) remaining.`;
+                }
+            }
+        }
+
         // Add event listeners
         document.addEventListener('DOMContentLoaded', () => {
             // Initialize 3D scene
@@ -1279,19 +1471,30 @@
             // Add slider events
             const timelineSlider = document.getElementById('timelineSlider');
             timelineSlider.addEventListener('input', (e) => {
-                if (imuData.length > 0) {
+                if (imuDataSets.length > 0) {
                     // Calculate the frame based on slider position
                     const percentage = e.target.value / 100;
-                    const newFrame = Math.floor(percentage * (imuData.length - 1));
+                    
+                    // Find the longest data set
+                    let maxFrames = 0;
+                    imuDataSets.forEach(dataSet => {
+                        maxFrames = Math.max(maxFrames, dataSet.length);
+                    });
+                    
+                    const newFrame = Math.floor(percentage * (maxFrames - 1));
                     
                     // Update animation state
                     animationState.frame = newFrame;
                     
-                    // Apply the frame data
-                    applyFrameData(newFrame);
+                    // Apply the frame data to all devices
+                    for (let i = 0; i < devices.length; i++) {
+                        if (i < imuDataSets.length && newFrame < imuDataSets[i].length) {
+                            applyFrameData(devices[i], imuDataSets[i], newFrame);
+                        }
+                    }
                     
                     // Update frame indicator
-                    updateFrameIndicator();
+                    updateFrameIndicator(maxFrames);
                     
                     // Update status
                     updateStatus();
@@ -1299,33 +1502,73 @@
             });
             
             // Add button event listeners
-            document.getElementById('visualizeBtn').addEventListener('click', () => {
+            document.getElementById('addGestureBtn').addEventListener('click', () => {
                 const csvText = document.getElementById('csvInput').value;
-                if (parseCSVData(csvText)) {
-                    animationState.playing = false;
-                    clearMotionTrail();
-                    applyFrameData(0);
+                if (csvText.trim() === '') {
+                    document.getElementById('status').textContent = 'Error: No data provided';
+                    return;
+                }
+                
+                // Add new device with the next available index
+                const deviceIndex = devices.length;
+                if (parseCSVData(csvText, deviceIndex)) {
+                    // Show device list section
+                    document.getElementById('deviceListSection').classList.remove('hidden');
                     
-                    // Update timeline slider max value
-                    timelineSlider.max = imuData.length - 1;
-                    timelineSlider.value = 0;
+                    // Apply initial frame data
+                    applyFrameData(devices[deviceIndex], imuDataSets[deviceIndex], 0);
                     
-                    // Update frame indicator
-                    updateFrameIndicator();
-                    updateStatus();
+                    // Update the frame indicator
+                    let maxFrames = 0;
+                    imuDataSets.forEach(dataSet => {
+                        maxFrames = Math.max(maxFrames, dataSet.length);
+                    });
+                    updateFrameIndicator(maxFrames);
+                    
+                    // Clear input field
+                    document.getElementById('csvInput').value = '';
                 } else {
                     document.getElementById('status').textContent = 'Error: Invalid data format';
                 }
             });
             
+            document.getElementById('visualizeAllBtn').addEventListener('click', () => {
+                if (devices.length === 0) {
+                    document.getElementById('status').textContent = 'No devices loaded. Add gestures first.';
+                    return;
+                }
+                
+                animationState.playing = false;
+                animationState.frame = 0;
+                
+                // Reset device positions and rotations
+                devices.forEach((device, i) => {
+                    device.position.set(i * 2, 0, 0); // Space them out horizontally
+                    device.rotation.set(0, 0, 0);
+                    device.userData.previousRotation = new THREE.Euler(0, 0, 0);
+                    device.userData.previousPosition = new THREE.Vector3(i * 2, 0, 0);
+                    clearMotionTrail(device);
+                });
+                
+                // Update frame indicator
+                let maxFrames = 0;
+                imuDataSets.forEach(dataSet => {
+                    maxFrames = Math.max(maxFrames, dataSet.length);
+                });
+                updateFrameIndicator(maxFrames);
+                
+                document.getElementById('status').textContent = `Ready to visualize ${devices.length} gestures together`;
+            });
+            
             document.getElementById('clearBtn').addEventListener('click', () => {
                 document.getElementById('csvInput').value = '';
                 resetData();
-                updateFrameIndicator();
+                document.getElementById('deviceListSection').classList.add('hidden');
+                updateFrameIndicator(0);
             });
             
             document.getElementById('playBtn').addEventListener('click', () => {
-                if (imuData.length > 0) {
+                if (imuDataSets.length > 0) {
                     animationState.playing = true;
                     animationState.lastTime = performance.now();
                 }
@@ -1338,10 +1581,24 @@
             document.getElementById('resetBtn').addEventListener('click', () => {
                 animationState.frame = 0;
                 animationState.playing = false;
-                clearMotionTrail();
-                if (imuData.length > 0) {
-                    applyFrameData(0);
-                    updateFrameIndicator();
+                
+                // Clear motion trails
+                devices.forEach(device => clearMotionTrail(device));
+                
+                if (imuDataSets.length > 0) {
+                    // Apply first frame data to all devices
+                    for (let i = 0; i < devices.length; i++) {
+                        if (i < imuDataSets.length) {
+                            applyFrameData(devices[i], imuDataSets[i], 0);
+                        }
+                    }
+                    
+                    // Update the frame indicator
+                    let maxFrames = 0;
+                    imuDataSets.forEach(dataSet => {
+                        maxFrames = Math.max(maxFrames, dataSet.length);
+                    });
+                    updateFrameIndicator(maxFrames);
                     updateStatus();
                 }
             });
@@ -1351,6 +1608,40 @@
             });
             
             document.getElementById('sampleBtn').addEventListener('click', () => {
+                // Show sample options dialog
+                Swal.fire({
+                    title: 'Select Sample Data Format',
+                    html: `
+                        <div class="flex flex-col space-y-4">
+                            <button id="standardFormatBtn" class="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors">
+                                Standard Format
+                                <div class="text-xs text-left mt-1">timestamp,milliseconds,gesture_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z,label</div>
+                            </button>
+                            <button id="relTimestampFormatBtn" class="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors">
+                                Rel-Timestamp Format
+                                <div class="text-xs text-left mt-1">rel_timestamp,recording_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z</div>
+                            </button>
+                        </div>
+                    `,
+                    showConfirmButton: false,
+                    showCancelButton: true,
+                    cancelButtonText: 'Close',
+                    willOpen: () => {
+                        // Add event listeners to buttons
+                        document.getElementById('standardFormatBtn').addEventListener('click', () => {
+                            loadStandardFormatSample();
+                            Swal.close();
+                        });
+                        document.getElementById('relTimestampFormatBtn').addEventListener('click', () => {
+                            loadRelTimestampFormatSample();
+                            Swal.close();
+                        });
+                    }
+                });
+            });
+            
+            // Function to load standard format sample
+            function loadStandardFormatSample() {
                 // Load sample data with metadata
                 const sampleData = 
 `------ RECORDING METADATA ------
@@ -1379,13 +1670,128 @@ Sampling Considerations:
 13820,2370,g_11450_6153,-1.7973,1.7163,7.7587,38.2900,149.5900,638.1200,0
 13830,2380,g_11450_6153,-1.3991,2.1160,7.8134,18.6900,259.1400,691.4600,0`;
                 
+                // Show sample data for first device
                 document.getElementById('csvInput').value = sampleData;
-                parseCSVData(sampleData);
-                clearMotionTrail();
-                applyFrameData(0);
-                updateFrameIndicator();
+                
+                // Generate a modified version for second device
+                let sampleData2 = sampleData.replace(/g_11450_6153/g, 'g_22222_7777');
+                // Change the values a bit to make it different
+                const lines = sampleData2.split('\n');
+                const dataLines = lines.slice(lines.findIndex(line => line.startsWith('----------------------------')) + 1);
+                
+                const modifiedDataLines = dataLines.map(line => {
+                    if (line.trim() === '' || !line.includes(',')) return line;
+                    const parts = line.split(',');
+                    if (parts.length >= 10) {
+                        // Modify acceleration values
+                        parts[3] = (parseFloat(parts[3]) * 0.7).toFixed(4);
+                        parts[4] = (parseFloat(parts[4]) * 1.3).toFixed(4);
+                        parts[5] = (parseFloat(parts[5]) * 0.9).toFixed(4);
+                        // Modify gyro values
+                        parts[6] = (parseFloat(parts[6]) * 0.8).toFixed(4);
+                        parts[7] = (parseFloat(parts[7]) * 1.2).toFixed(4);
+                        parts[8] = (parseFloat(parts[8]) * 0.6).toFixed(4);
+                        return parts.join(',');
+                    }
+                    return line;
+                });
+                
+                const headerIndex = lines.findIndex(line => line.startsWith('--------------------------------'));
+                const sampleData2Lines = [...lines.slice(0, headerIndex + 1), ...modifiedDataLines];
+                const sampleData2Text = sampleData2Lines.join('\n');
+                
+                // Add both gestures
+                clearAllDevices();
+                parseCSVData(sampleData, 0);
+                parseCSVData(sampleData2Text, 1);
+                
+                // Show device list
+                document.getElementById('deviceListSection').classList.remove('hidden');
+                
+                // Apply initial frame data
+                for (let i = 0; i < devices.length; i++) {
+                    applyFrameData(devices[i], imuDataSets[i], 0);
+                }
+                
+                updateFrameIndicator(Math.max(imuDataSets[0].length, imuDataSets[1].length));
                 updateStatus();
-            });
+            }
+            
+            // Function to load rel-timestamp format sample
+            function loadRelTimestampFormatSample() {
+                // Create sample data header
+                const sampleHeader = 
+`rel_timestamp,recording_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z`;
+                
+                // Sample data (first 20 lines from the provided CSV)
+                const sampleData = 
+`${sampleHeader}
+22,g_1861830_7940,-0.109495,1.363948,7.783390,26.930681,-21.973976,6.129760
+32,g_1861830_7940,-0.113850,1.378465,7.825973,-1.909318,-16.233974,5.919760
+42,g_1861830_7940,-0.104656,1.365883,7.912593,2.640682,-15.603974,5.709760
+51,g_1861830_7940,-0.083364,1.357173,7.863718,25.460682,-21.553974,6.549760
+61,g_1861830_7940,-0.091106,1.361528,7.680317,23.570681,-22.883976,6.409760
+71,g_1861830_7940,-0.112398,1.398789,7.825490,1.660682,-15.953975,5.849760
+81,g_1861830_7940,-0.100785,1.354269,7.869525,4.320682,-12.663975,5.289760
+90,g_1861830_7940,-0.121593,1.344591,7.890817,13.000681,-22.043976,6.409760
+100,g_1861830_7940,-0.109979,1.392014,7.872429,20.770681,-20.643974,7.389760
+110,g_1861830_7940,-0.132723,1.375077,7.775163,6.350682,-15.953975,5.779760
+120,g_1861830_7940,-0.109011,1.397337,7.835651,1.310682,-14.343974,6.059760
+130,g_1861830_7940,-0.116270,1.408951,7.848717,14.750681,-19.033974,7.249760
+140,g_1861830_7940,-0.080460,1.408467,7.836619,19.160681,-19.383976,6.759760
+149,g_1861830_7940,-0.104656,1.393950,7.810488,7.260682,-16.163975,6.199760
+159,g_1861830_7940,-0.079009,1.390562,7.857911,4.530682,-15.603974,5.849760
+169,g_1861830_7940,-0.109979,1.387175,7.837103,12.790682,-17.773975,6.899760
+179,g_1861830_7940,-0.094010,1.375077,7.813392,18.110682,-18.403976,7.599761
+188,g_1861830_7940,-0.106108,1.378949,7.823554,10.480682,-16.863976,5.849760
+198,g_1861830_7940,-0.108527,1.383788,7.834684,6.070682,-15.533975,6.409760`;
+                
+                // Create a modified version for second gesture
+                let sampleData2 = sampleData.replace(/g_1861830_7940/g, 'g_2222222_8888');
+                
+                // Change values for the second gesture to be visibly different
+                const lines = sampleData2.split('\n');
+                const modifiedLines = lines.map((line, index) => {
+                    if (index === 0 || !line.includes(',')) return line; // Skip header
+                    
+                    const parts = line.split(',');
+                    if (parts.length >= 8) {
+                        // Modify acceleration values
+                        parts[2] = (parseFloat(parts[2]) * -0.8).toFixed(6); // Flip direction
+                        parts[3] = (parseFloat(parts[3]) * 0.7).toFixed(6);
+                        parts[4] = (parseFloat(parts[4]) * 1.2).toFixed(6);
+                        
+                        // Modify gyro values
+                        parts[5] = (parseFloat(parts[5]) * 0.9).toFixed(6);
+                        parts[6] = (parseFloat(parts[6]) * 1.1).toFixed(6);
+                        parts[7] = (parseFloat(parts[7]) * 0.8).toFixed(6);
+                        
+                        return parts.join(',');
+                    }
+                    return line;
+                });
+                
+                const sampleData2Text = modifiedLines.join('\n');
+                
+                // Display the sample data
+                document.getElementById('csvInput').value = sampleData;
+                
+                // Clear and add both gestures
+                clearAllDevices();
+                parseCSVData(sampleData, 0);
+                parseCSVData(sampleData2Text, 1);
+                
+                // Show device list
+                document.getElementById('deviceListSection').classList.remove('hidden');
+                
+                // Apply initial frame data
+                for (let i = 0; i < devices.length; i++) {
+                    applyFrameData(devices[i], imuDataSets[i], 0);
+                }
+                
+                updateFrameIndicator(Math.max(imuDataSets[0].length, imuDataSets[1].length));
+                updateStatus();
+            }
             
             // Add dark mode toggle functionality
             document.getElementById('darkModeToggle').addEventListener('change', function() {
