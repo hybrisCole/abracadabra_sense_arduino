@@ -8,6 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Add Chart.js v3.9.1 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <!-- Add Chart.js annotation plugin -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.1.0/dist/chartjs-plugin-annotation.min.js"></script>
     <!-- Add noUiSlider -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
@@ -100,8 +102,9 @@
 
         <div class="bg-card rounded-lg shadow-md p-6 mb-6 border border-border">
             <h2 class="text-xl font-semibold mb-4">1. Load CSV Data</h2>
-            <input type="file" id="csvFile" accept=".csv" class="w-full p-2 border border-input rounded-md bg-background text-foreground focus:ring-2 focus:ring-ring focus:outline-none">
-            <p class="text-xs text-muted-foreground mt-1">Select the IMU data CSV file.</p>
+            <textarea id="csvData" rows="10" class="w-full p-2 border border-input rounded-md bg-background text-foreground focus:ring-2 focus:ring-ring focus:outline-none" placeholder="Paste your CSV data here..."></textarea>
+            <button id="loadDataBtn" class="mt-2 bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors w-full">Load Data</button>
+            <p class="text-xs text-muted-foreground mt-1">Paste your IMU data CSV content here.</p>
         </div>
 
         <div class="bg-card rounded-lg shadow-md p-6 mb-6 border border-border">
@@ -109,17 +112,13 @@
             <p class="text-sm text-muted-foreground mb-2">Graph will appear here after loading data. Click on the graph to select start time.</p>
             <canvas id="imuChart"></canvas>
             <!-- Slider placeholder -->
-            <!-- Read-only displays for selection -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                <div>
-                    <label for="startTime" class="block text-sm font-medium text-foreground">Start Time (ms):</label>
-                    <input type="number" id="startTime" value="0" step="10" class="mt-1 block w-full p-2 border border-input rounded-md bg-background focus:ring-2 focus:ring-ring focus:outline-none">
-                </div>
-                <div>
-                    <label for="chunkDuration" class="block text-sm font-medium text-foreground">Chunk Duration (ms):</label>
-                    <input type="number" id="chunkDuration" value="500" step="10" class="mt-1 block w-full p-2 border border-input rounded-md bg-background focus:ring-2 focus:ring-ring focus:outline-none">
-                </div>
+            <div id="rangeSlider" class="mt-6"></div>
+            <div class="flex justify-between text-xs mt-2">
+                <span id="sliderStartLabel">Start: 0 ms</span>
+                <span id="sliderTotalLabel" class="text-center w-full">Total: 0 ms</span>
+                <span id="sliderEndLabel">End: 0 ms</span>
             </div>
+            <!-- Read-only displays for selection -->
         </div>
 
         <div class="bg-card rounded-lg shadow-md p-6 mb-6 border border-border">
@@ -137,8 +136,11 @@
         let imuChart = null;
         let originalData = [];
         let originalHeaders = ''; // To store the header line
+        let slider = null;
+        let sliderStart = 0;
+        let sliderEnd = 0;
         
-        document.getElementById('csvFile').addEventListener('change', handleFileLoad);
+        document.getElementById('loadDataBtn').addEventListener('click', handleDataLoad);
         document.getElementById('cropBtn').addEventListener('click', handleCropAndDownload);
         
         function updateStatus(message, isError = false) {
@@ -147,23 +149,13 @@
             statusEl.className = `mt-4 text-center ${isError ? 'text-destructive' : 'text-muted-foreground'}`;
         }
 
-        function handleFileLoad(event) {
-            const file = event.target.files[0];
-            if (!file) {
-                updateStatus('No file selected.', true);
+        function handleDataLoad() {
+            const csvText = document.getElementById('csvData').value.trim();
+            if (!csvText) {
+                updateStatus('No data pasted.', true);
                 return;
             }
-
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const text = e.target.result;
-                parseCSV(text);
-            };
-            reader.onerror = function() {
-                updateStatus('Error reading file.', true);
-            }
-            reader.readAsText(file);
-            updateStatus('Loading file...');
+            parseCSV(csvText);
         }
 
         function parseCSV(csvText) {
@@ -175,107 +167,127 @@
                 return;
             }
 
-            // Attempt to find the header row
-            let dataStartIndex = 0;
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i].trim();
-                // Heuristic: header is often the first line that contains common keywords
-                // and doesn't look like metadata comments
-                if (line.toLowerCase().includes('timestamp') || line.toLowerCase().includes('acc_x')) {
-                    if (!line.startsWith('*') && !line.startsWith('-') && !line.startsWith('RECORDING')) {
-                        originalHeaders = line;
-                        dataStartIndex = i + 1;
-                        break;
-                    }
-                }
-                 if (i === 0 && !originalHeaders) { // Fallback if no clear header found, assume first line is header
-                    originalHeaders = line;
-                    dataStartIndex = 1;
-                }
-            }
+            // Standard IMU header
+            const standardHeader = 'rel_timestamp,recording_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z';
             
-            if (!originalHeaders && lines.length > 0) { // If still no header, assume first line might be it or no header
-                 originalHeaders = lines[0].trim(); // Take the first line as potential header
-                 dataStartIndex = lines[0].trim().split(',').every(val => !isNaN(parseFloat(val))) ? 0 : 1; // If first line is all numbers, assume no header
-                 if (dataStartIndex === 0) originalHeaders = ''; // No header if first line is data
-            }
+            // Check if the first line contains any of our expected headers
+            const firstLine = lines[0].toLowerCase();
+            const hasHeader = firstLine.includes('timestamp') || 
+                            firstLine.includes('acc_') || 
+                            firstLine.includes('gyro_');
 
+            // If no header is detected, add our standard header
+            if (!hasHeader) {
+                originalHeaders = standardHeader;
+                // Process all lines as data
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (!line || line.startsWith('*') || line.startsWith('-') || line.startsWith('RECORDING')) continue;
 
-            let currentTime = 0;
-            let lastEpochTimestamp = 0;
-
-            for (let i = dataStartIndex; i < lines.length; i++) {
-                const line = lines[i].trim();
-                if (!line || line.startsWith('*') || line.startsWith('-') || line.startsWith('RECORDING')) continue;
-
-                const values = line.split(',');
-                let record = { raw: line, values: values };
-                
-                // Determine timestamp for this record
-                // This logic needs to be robust, similar to gesture_visualizer
-                if (originalHeaders.includes('timestamp') && originalHeaders.includes('milliseconds')) {
-                    const tsIndex = originalHeaders.split(',').indexOf('timestamp');
-                    const msIndex = originalHeaders.split(',').indexOf('milliseconds');
-                    if (tsIndex !== -1 && msIndex !== -1 && values.length > Math.max(tsIndex, msIndex)) {
-                        const epochSec = parseFloat(values[tsIndex]);
-                        const epochMs = parseFloat(values[msIndex]);
-                        // Assume 'timestamp' is seconds and 'milliseconds' is the sub-second part within that second,
-                        // or 'milliseconds' could be an independent running total.
-                        // For simplicity, let's assume 'milliseconds' is the primary relative time if available and increasing.
-                        // A more robust way would be to check if `timestamp` changes. If it's constant, `milliseconds` is the relative time.
-                        // If `timestamp` increases, it's epoch time.
-                        if (lastEpochTimestamp !== epochSec && epochSec > 1000000) { // Heuristic for epoch seconds
-                            lastEpochTimestamp = epochSec;
-                            currentTime = epochSec * 1000 + epochMs;
-                        } else { // milliseconds is likely the running total
-                             currentTime = epochMs; // Or handle as relative to a start if timestamp is 0 or constant
+                    const values = line.split(',');
+                    let record = { raw: line, values: values };
+                    
+                    // Assign time based on line number if no timestamp column
+                    record.time = i * 10; // 10ms intervals
+                    
+                    // Map values to standard columns
+                    if (values.length >= 8) {
+                        record.accX = parseFloat(values[2]);
+                        record.accY = parseFloat(values[3]);
+                        record.accZ = parseFloat(values[4]);
+                        record.gyroX = parseFloat(values[5]);
+                        record.gyroY = parseFloat(values[6]);
+                        record.gyroZ = parseFloat(values[7]);
+                    }
+                    
+                    originalData.push(record);
+                }
+            } else {
+                // Original header detection logic
+                let dataStartIndex = 0;
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (line.toLowerCase().includes('timestamp') || line.toLowerCase().includes('acc_x')) {
+                        if (!line.startsWith('*') && !line.startsWith('-') && !line.startsWith('RECORDING')) {
+                            originalHeaders = line;
+                            dataStartIndex = i + 1;
+                            break;
                         }
-                         record.time = currentTime;
                     }
-                } else if (originalHeaders.includes('rel_timestamp')) {
-                    const relTsIndex = originalHeaders.split(',').indexOf('rel_timestamp');
-                    if (relTsIndex !== -1 && values.length > relTsIndex) {
-                        record.time = parseFloat(values[relTsIndex]);
+                    if (i === 0 && !originalHeaders) {
+                        originalHeaders = line;
+                        dataStartIndex = 1;
                     }
-                } else if (originalHeaders.includes('timestamp')) { // Older format
-                    const tsIndex = originalHeaders.split(',').indexOf('timestamp');
-                     if (tsIndex !== -1 && values.length > tsIndex) {
-                        record.time = parseFloat(values[tsIndex]);
-                    }
-                } else { // No explicit time column found, try first column
-                    if (values.length > 0 && !isNaN(parseFloat(values[0]))) {
-                        record.time = parseFloat(values[0]);
-                         if(!originalHeaders && i === dataStartIndex) { // If no header and first column is numeric, assume it's time
-                            originalHeaders = "time,data1,data2,data3,data4,data5,data6,data7,data8,data9,data10".split(',').slice(0, values.length).join(',');
+                }
+                
+                if (!originalHeaders && lines.length > 0) {
+                    originalHeaders = lines[0].trim();
+                    dataStartIndex = lines[0].trim().split(',').every(val => !isNaN(parseFloat(val))) ? 0 : 1;
+                    if (dataStartIndex === 0) originalHeaders = standardHeader;
+                }
+
+                // Process data with existing header
+                let currentTime = 0;
+                let lastEpochTimestamp = 0;
+
+                for (let i = dataStartIndex; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (!line || line.startsWith('*') || line.startsWith('-') || line.startsWith('RECORDING')) continue;
+
+                    const values = line.split(',');
+                    let record = { raw: line, values: values };
+                    
+                    // Rest of the existing time and data processing logic
+                    if (originalHeaders.includes('timestamp') && originalHeaders.includes('milliseconds')) {
+                        const tsIndex = originalHeaders.split(',').indexOf('timestamp');
+                        const msIndex = originalHeaders.split(',').indexOf('milliseconds');
+                        if (tsIndex !== -1 && msIndex !== -1 && values.length > Math.max(tsIndex, msIndex)) {
+                            const epochSec = parseFloat(values[tsIndex]);
+                            const epochMs = parseFloat(values[msIndex]);
+                            if (lastEpochTimestamp !== epochSec && epochSec > 1000000) {
+                                lastEpochTimestamp = epochSec;
+                                currentTime = epochSec * 1000 + epochMs;
+                            } else {
+                                currentTime = epochMs;
+                            }
+                            record.time = currentTime;
+                        }
+                    } else if (originalHeaders.includes('rel_timestamp')) {
+                        const relTsIndex = originalHeaders.split(',').indexOf('rel_timestamp');
+                        if (relTsIndex !== -1 && values.length > relTsIndex) {
+                            record.time = parseFloat(values[relTsIndex]);
+                        }
+                    } else if (originalHeaders.includes('timestamp')) {
+                        const tsIndex = originalHeaders.split(',').indexOf('timestamp');
+                        if (tsIndex !== -1 && values.length > tsIndex) {
+                            record.time = parseFloat(values[tsIndex]);
                         }
                     } else {
-                        record.time = i * 10; // Fallback: assign arbitrary time based on line number (e.g., 10ms interval)
-                        if(!originalHeaders && i === dataStartIndex) {
-                            originalHeaders = "data1,data2,data3,data4,data5,data6,data7,data8,data9,data10".split(',').slice(0, values.length).join(',');
+                        if (values.length > 0 && !isNaN(parseFloat(values[0]))) {
+                            record.time = parseFloat(values[0]);
+                        } else {
+                            record.time = i * 10;
                         }
                     }
+                    
+                    // Map values to standard columns
+                    const headerCols = originalHeaders.toLowerCase().split(',');
+                    const accXIndex = headerCols.indexOf('acc_x');
+                    const accYIndex = headerCols.indexOf('acc_y');
+                    const accZIndex = headerCols.indexOf('acc_z');
+                    const gyroXIndex = headerCols.indexOf('gyro_x');
+                    const gyroYIndex = headerCols.indexOf('gyro_y');
+                    const gyroZIndex = headerCols.indexOf('gyro_z');
+
+                    if (accXIndex !== -1) record.accX = parseFloat(values[accXIndex]);
+                    if (accYIndex !== -1) record.accY = parseFloat(values[accYIndex]);
+                    if (accZIndex !== -1) record.accZ = parseFloat(values[accZIndex]);
+                    if (gyroXIndex !== -1) record.gyroX = parseFloat(values[gyroXIndex]);
+                    if (gyroYIndex !== -1) record.gyroY = parseFloat(values[gyroYIndex]);
+                    if (gyroZIndex !== -1) record.gyroZ = parseFloat(values[gyroZIndex]);
+
+                    originalData.push(record);
                 }
-                
-                // Try to get accX, accY, accZ for plotting
-                const headerCols = originalHeaders.toLowerCase().split(',');
-                const accXIndex = headerCols.indexOf('acc_x');
-                const accYIndex = headerCols.indexOf('acc_y');
-                const accZIndex = headerCols.indexOf('acc_z');
-
-                if (accXIndex !== -1) record.accX = parseFloat(values[accXIndex]);
-                if (accYIndex !== -1) record.accY = parseFloat(values[accYIndex]);
-                if (accZIndex !== -1) record.accZ = parseFloat(values[accZIndex]);
-
-                // Try to get gyroX, gyroY, gyroZ for plotting
-                const gyroXIndex = headerCols.indexOf('gyro_x');
-                const gyroYIndex = headerCols.indexOf('gyro_y');
-                const gyroZIndex = headerCols.indexOf('gyro_z');
-
-                if (gyroXIndex !== -1) record.gyroX = parseFloat(values[gyroXIndex]);
-                if (gyroYIndex !== -1) record.gyroY = parseFloat(values[gyroYIndex]);
-                if (gyroZIndex !== -1) record.gyroZ = parseFloat(values[gyroZIndex]);
-
-                originalData.push(record);
             }
 
             if (originalData.length === 0) {
@@ -284,11 +296,10 @@
             }
             
             // Normalize time if it's not starting near zero for some formats
-            if (originalData.length > 0 && originalData[0].time > 1000000) { // Heuristic for large epoch timestamps
+            if (originalData.length > 0 && originalData[0].time > 1000000) {
                 const startTime = originalData[0].time;
                 originalData.forEach(d => d.time -= startTime);
             }
-
 
             updateStatus(`Loaded ${originalData.length} data points. Header: ${originalHeaders || 'Not identified'}`);
             renderChart();
@@ -297,17 +308,17 @@
         function renderChart() {
             if (imuChart) {
                 imuChart.destroy();
+                imuChart = null;
             }
             
             const ctx = document.getElementById('imuChart').getContext('2d');
             
-            const labels = originalData.map(d => d.time);
+            // Prepare datasets as {x: time, y: value} for linear x-axis
             const datasets = [];
-
             if (originalData.length > 0 && originalData[0].hasOwnProperty('accX')) {
                 datasets.push({
                     label: 'Acc X',
-                    data: originalData.map(d => d.accX),
+                    data: originalData.map(d => ({x: d.time, y: d.accX})),
                     borderColor: 'rgb(255, 99, 132)',
                     tension: 0.1,
                     pointRadius: 1,
@@ -318,7 +329,7 @@
             if (originalData.length > 0 && originalData[0].hasOwnProperty('accY')) {
                 datasets.push({
                     label: 'Acc Y',
-                    data: originalData.map(d => d.accY),
+                    data: originalData.map(d => ({x: d.time, y: d.accY})),
                     borderColor: 'rgb(54, 162, 235)',
                     tension: 0.1,
                     pointRadius: 1,
@@ -327,9 +338,9 @@
                 });
             }
             if (originalData.length > 0 && originalData[0].hasOwnProperty('accZ')) {
-                 datasets.push({
+                datasets.push({
                     label: 'Acc Z',
-                    data: originalData.map(d => d.accZ),
+                    data: originalData.map(d => ({x: d.time, y: d.accZ})),
                     borderColor: 'rgb(75, 192, 192)',
                     tension: 0.1,
                     pointRadius: 1,
@@ -337,13 +348,11 @@
                     yAxisID: 'yAcc'
                 });
             }
-
-            // Add Gyroscope data if available
             if (originalData.length > 0 && originalData[0].hasOwnProperty('gyroX')) {
                 datasets.push({
                     label: 'Gyro X',
-                    data: originalData.map(d => d.gyroX),
-                    borderColor: 'rgb(255, 159, 64)', // Orange
+                    data: originalData.map(d => ({x: d.time, y: d.gyroX})),
+                    borderColor: 'rgb(255, 159, 64)',
                     tension: 0.1,
                     pointRadius: 1,
                     borderWidth: 1,
@@ -353,8 +362,8 @@
             if (originalData.length > 0 && originalData[0].hasOwnProperty('gyroY')) {
                 datasets.push({
                     label: 'Gyro Y',
-                    data: originalData.map(d => d.gyroY),
-                    borderColor: 'rgb(153, 102, 255)', // Purple
+                    data: originalData.map(d => ({x: d.time, y: d.gyroY})),
+                    borderColor: 'rgb(153, 102, 255)',
                     tension: 0.1,
                     pointRadius: 1,
                     borderWidth: 1,
@@ -362,27 +371,26 @@
                 });
             }
             if (originalData.length > 0 && originalData[0].hasOwnProperty('gyroZ')) {
-                 datasets.push({
+                datasets.push({
                     label: 'Gyro Z',
-                    data: originalData.map(d => d.gyroZ),
-                    borderColor: 'rgb(255, 205, 86)', // Yellow
+                    data: originalData.map(d => ({x: d.time, y: d.gyroZ})),
+                    borderColor: 'rgb(255, 205, 86)',
                     tension: 0.1,
                     pointRadius: 1,
                     borderWidth: 1,
                     yAxisID: 'yGyro'
                 });
             }
-
-            if (datasets.length === 0) { // Fallback: plot first few numeric columns if no acc_x/y/z or gyro_x/y/z
+            // Fallback for generic columns
+            if (datasets.length === 0) {
                 const numCols = originalData[0] ? originalData[0].values.length : 0;
-                const potentialDataCols = Math.min(numCols, 3); // Plot up to 3 fallback columns
+                const potentialDataCols = Math.min(numCols, 3);
                 for (let i = 0; i < potentialDataCols; i++) {
-                    // Check if column i (after potential time column) is numeric
                     const isNumeric = originalData.every(d => d.values[i] !== undefined && !isNaN(parseFloat(d.values[i])));
                     if (isNumeric) {
                         datasets.push({
                             label: `Column ${i+1}`,
-                            data: originalData.map(d => parseFloat(d.values[i])),
+                            data: originalData.map(d => ({x: d.time, y: parseFloat(d.values[i])})),
                             borderColor: [`rgb(255, 99, 132)`, `rgb(54, 162, 235)`, `rgb(75, 192, 192)`][i % 3],
                             tension: 0.1,
                             pointRadius: 1,
@@ -391,18 +399,28 @@
                     }
                 }
             }
-            
-            if (datasets.length === 0) {
-                updateStatus('No plottable data columns (AccX/Y/Z, GyroX/Y/Z or numeric) found in CSV.', true);
-                return;
+            // Find min and max time, and minimum time step
+            const times = originalData.map(d => d.time);
+            const minTime = Math.min(...times);
+            const maxTime = Math.max(...times);
+            let minStep = 1;
+            if (times.length > 1) {
+                minStep = Math.min(...times.slice(1).map((t, i) => t - times[i]).filter(dt => dt > 0));
             }
-
-            // Register the annotation plugin
+            if (!slider) {
+                createSlider(minTime, maxTime, minStep);
+            }
+            const highlightStart = slider ? parseFloat(slider.noUiSlider.get()[0]) : minTime;
+            const highlightEnd = slider ? parseFloat(slider.noUiSlider.get()[1]) : minTime + 500;
+            sliderStart = highlightStart;
+            sliderEnd = highlightEnd;
+            document.getElementById('sliderStartLabel').textContent = `Start: ${Math.round(highlightStart)} ms`;
+            document.getElementById('sliderTotalLabel').textContent = `Total: ${Math.round(highlightEnd - highlightStart)} ms`;
+            document.getElementById('sliderEndLabel').textContent = `End: ${Math.round(highlightEnd)} ms`;
             
             imuChart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: labels,
                     datasets: datasets
                 },
                 options: {
@@ -410,6 +428,7 @@
                     maintainAspectRatio: false,
                     scales: {
                         x: {
+                            type: 'linear',
                             title: { display: true, text: 'Time (ms)' }
                         },
                         yAcc: {
@@ -428,40 +447,94 @@
                             }
                         }
                     },
-                    onClick: (event, elements) => {
-                        // Remove old onClick logic, slider handles selection now
-                        if (elements.length > 0) {
-                            const chartElement = elements[0];
-                            const dataPoint = originalData[chartElement.index];
-                            if (dataPoint && dataPoint.time !== undefined) {
-                                document.getElementById('startTime').value = Math.round(dataPoint.time);
-                                updateStatus(`Selected start time: ${Math.round(dataPoint.time)} ms`);
-                            }
-                        }
-                    },
                     plugins: {
                         tooltip: {
                             callbacks: {
                                 title: function(tooltipItems) {
                                     if (tooltipItems.length > 0) {
                                         const dataIndex = tooltipItems[0].dataIndex;
-                                        return `Time: ${originalData[dataIndex].time.toFixed(2)} ms`;
+                                        const xValue = tooltipItems[0].parsed.x;
+                                        return `Time: ${xValue.toFixed(2)} ms`;
                                     }
                                     return '';
                                 }
                             }
                         },
-                        
+                        annotation: {
+                            annotations: {
+                                selectedRange: {
+                                    type: 'box',
+                                    xMin: highlightStart,
+                                    xMax: highlightEnd,
+                                    backgroundColor: 'rgba(54, 162, 235, 0.08)',
+                                    borderWidth: 0,
+                                },
+                                startLine: {
+                                    type: 'line',
+                                    xMin: highlightStart,
+                                    xMax: highlightStart,
+                                    borderColor: 'rgba(54, 162, 235, 1)',
+                                    borderWidth: 2,
+                                    label: {
+                                        display: true,
+                                        content: 'Start',
+                                        position: 'start',
+                                        backgroundColor: 'rgba(54, 162, 235, 0.8)',
+                                        color: '#fff',
+                                    }
+                                },
+                                endLine: {
+                                    type: 'line',
+                                    xMin: highlightEnd,
+                                    xMax: highlightEnd,
+                                    borderColor: 'rgba(255, 99, 132, 1)',
+                                    borderWidth: 2,
+                                    label: {
+                                        display: true,
+                                        content: 'End',
+                                        position: 'end',
+                                        backgroundColor: 'rgba(255, 99, 132, 0.8)',
+                                        color: '#fff',
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             });
+        }
 
-            // Initialize noUiSlider
-            
-            // Update chart annotation and display fields when slider changes
-            
-            // Set initial annotation box based on slider
-            
+        function createSlider(minTime, maxTime, minStep) {
+            const sliderDiv = document.getElementById('rangeSlider');
+            sliderDiv.innerHTML = '';
+            slider = document.createElement('div');
+            sliderDiv.appendChild(slider);
+            noUiSlider.create(slider, {
+                start: [minTime, minTime + 500],
+                connect: true,
+                range: {
+                    min: minTime,
+                    max: maxTime
+                },
+                step: minStep,
+                tooltips: [true, true],
+                format: {
+                    to: value => Math.round(value),
+                    from: value => Number(value)
+                }
+            });
+            slider.noUiSlider.on('update', function(values) {
+                sliderStart = parseFloat(values[0]);
+                sliderEnd = parseFloat(values[1]);
+                document.getElementById('sliderStartLabel').textContent = `Start: ${Math.round(sliderStart)} ms`;
+                document.getElementById('sliderTotalLabel').textContent = `Total: ${Math.round(sliderEnd - sliderStart)} ms`;
+                document.getElementById('sliderEndLabel').textContent = `End: ${Math.round(sliderEnd)} ms`;
+                if (imuChart) {
+                    imuChart.destroy();
+                    imuChart = null;
+                }
+                renderChart();
+            });
         }
 
         function handleCropAndDownload() {
@@ -469,40 +542,27 @@
                 updateStatus('No data loaded or slider not initialized.', true);
                 return;
             }
-
-            
-            const startTime = parseFloat(document.getElementById('startTime').value);
-            const duration = parseFloat(document.getElementById('chunkDuration').value);
-
-            if (isNaN(startTime) || isNaN(duration) || duration <= 0) {
-                updateStatus('Invalid start time or duration.', true);
-                return;
-            }
-
-            const croppedData = originalData.filter(d => d.time >= startTime && d.time < startTime + duration);
-
+            // Use sliderStart and sliderEnd for cropping
+            const croppedData = originalData.filter(d => d.time >= sliderStart && d.time <= sliderEnd);
             if (croppedData.length === 0) {
                 updateStatus('No data points found in the selected time range.', true);
                 return;
             }
-
             // Create CSV content
             let csvContent = "";
             if (originalHeaders) {
                 csvContent += originalHeaders + '\n';
             }
-            
             croppedData.forEach(row => {
                 csvContent += row.raw + '\n';
             });
-
             // Create a blob and trigger download
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement("a");
-            if (link.download !== undefined) { // Feature detection
+            if (link.download !== undefined) {
                 const url = URL.createObjectURL(blob);
                 link.setAttribute("href", url);
-                link.setAttribute("download", `cropped_imu_data_${startTime}ms_${duration}ms.csv`);
+                link.setAttribute("download", `cropped_imu_data_${Math.round(sliderStart)}ms_${Math.round(sliderEnd-sliderStart)}ms.csv`);
                 link.style.visibility = 'hidden';
                 document.body.appendChild(link);
                 link.click();
