@@ -118,12 +118,43 @@
                 <span id="sliderTotalLabel" class="text-center w-full">Total: 0 ms</span>
                 <span id="sliderEndLabel">End: 0 ms</span>
             </div>
+            
+            <!-- Precision Controls -->
+            <div class="mt-4 p-4 bg-muted rounded-lg border">
+                <h3 class="text-sm font-semibold mb-3">Precision Controls</h3>
+                
+                <!-- Radio buttons to select start or end -->
+                <div class="flex gap-4 mb-3">
+                    <label class="flex items-center">
+                        <input type="radio" name="sliderControl" value="start" checked class="mr-2">
+                        <span class="text-sm">Move Start Position</span>
+                    </label>
+                    <label class="flex items-center">
+                        <input type="radio" name="sliderControl" value="end" class="mr-2">
+                        <span class="text-sm">Move End Position</span>
+                    </label>
+                </div>
+                
+                <!-- Move buttons -->
+                <div class="flex gap-2 justify-center">
+                    <button id="moveLeftBtn" class="bg-secondary text-secondary-foreground px-3 py-1 rounded-md hover:bg-secondary/80 transition-colors text-sm">
+                        ← Move Left
+                    </button>
+                    <button id="moveRightBtn" class="bg-secondary text-secondary-foreground px-3 py-1 rounded-md hover:bg-secondary/80 transition-colors text-sm">
+                        Move Right →
+                    </button>
+                </div>
+                
+                <p class="text-xs text-muted-foreground mt-2 text-center">
+                    Select start or end position above, then use buttons to move by one step.
+                </p>
+            </div>
             <!-- Read-only displays for selection -->
         </div>
 
         <div class="bg-card rounded-lg shadow-md p-6 mb-6 border border-border">
-            <h2 class="text-xl font-semibold mb-4">3. Crop &amp; Download</h2>
-            <button id="cropBtn" class="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors w-full">Crop and Download Selected Chunk</button>
+            <h2 class="text-xl font-semibold mb-4">3. Crop &amp; Copy</h2>
+            <button id="cropBtn" class="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors w-full">Crop and Copy to Clipboard</button>
         </div>
         
         <div id="statusMessage" class="mt-4 text-center text-muted-foreground">
@@ -139,9 +170,12 @@
         let slider = null;
         let sliderStart = 0;
         let sliderEnd = 0;
+        let sliderStep = 1; // Store the step size for precision controls
         
         document.getElementById('loadDataBtn').addEventListener('click', handleDataLoad);
-        document.getElementById('cropBtn').addEventListener('click', handleCropAndDownload);
+        document.getElementById('cropBtn').addEventListener('click', handleCropAndCopy);
+        document.getElementById('moveLeftBtn').addEventListener('click', handleMoveLeft);
+        document.getElementById('moveRightBtn').addEventListener('click', handleMoveRight);
         
         function updateStatus(message, isError = false) {
             const statusEl = document.getElementById('statusMessage');
@@ -411,7 +445,7 @@
                 createSlider(minTime, maxTime, minStep);
             }
             const highlightStart = slider ? parseFloat(slider.noUiSlider.get()[0]) : minTime;
-            const highlightEnd = slider ? parseFloat(slider.noUiSlider.get()[1]) : minTime + 500;
+            const highlightEnd = slider ? parseFloat(slider.noUiSlider.get()[1]) : minTime + 4000;
             sliderStart = highlightStart;
             sliderEnd = highlightEnd;
             document.getElementById('sliderStartLabel').textContent = `Start: ${Math.round(highlightStart)} ms`;
@@ -509,8 +543,12 @@
             sliderDiv.innerHTML = '';
             slider = document.createElement('div');
             sliderDiv.appendChild(slider);
+            
+            // Store the step size for precision controls
+            sliderStep = minStep;
+            
             noUiSlider.create(slider, {
-                start: [minTime, minTime + 500],
+                start: [minTime, minTime + 4000],
                 connect: true,
                 range: {
                     min: minTime,
@@ -529,15 +567,78 @@
                 document.getElementById('sliderStartLabel').textContent = `Start: ${Math.round(sliderStart)} ms`;
                 document.getElementById('sliderTotalLabel').textContent = `Total: ${Math.round(sliderEnd - sliderStart)} ms`;
                 document.getElementById('sliderEndLabel').textContent = `End: ${Math.round(sliderEnd)} ms`;
-                if (imuChart) {
-                    imuChart.destroy();
-                    imuChart = null;
-                }
-                renderChart();
+                updateChartAnnotations();
             });
         }
 
-        function handleCropAndDownload() {
+        function updateChartAnnotations() {
+            if (!imuChart) return;
+            
+            // Update the chart annotations without destroying the chart
+            imuChart.options.plugins.annotation.annotations.selectedRange.xMin = sliderStart;
+            imuChart.options.plugins.annotation.annotations.selectedRange.xMax = sliderEnd;
+            imuChart.options.plugins.annotation.annotations.startLine.xMin = sliderStart;
+            imuChart.options.plugins.annotation.annotations.startLine.xMax = sliderStart;
+            imuChart.options.plugins.annotation.annotations.endLine.xMin = sliderEnd;
+            imuChart.options.plugins.annotation.annotations.endLine.xMax = sliderEnd;
+            
+            // Update the chart without animation
+            imuChart.update('none');
+        }
+
+        function getSelectedSliderControl() {
+            const radioButtons = document.getElementsByName('sliderControl');
+            for (let radio of radioButtons) {
+                if (radio.checked) {
+                    return radio.value;
+                }
+            }
+            return 'start'; // default
+        }
+
+        function handleMoveLeft() {
+            if (!slider) return;
+            
+            const controlType = getSelectedSliderControl();
+            const currentValues = slider.noUiSlider.get();
+            const currentStart = parseFloat(currentValues[0]);
+            const currentEnd = parseFloat(currentValues[1]);
+            const range = slider.noUiSlider.options.range;
+            
+            if (controlType === 'start') {
+                const newStart = Math.max(range.min, currentStart - sliderStep);
+                // Ensure start doesn't go beyond end
+                if (newStart < currentEnd) {
+                    slider.noUiSlider.set([newStart, currentEnd]);
+                }
+            } else {
+                const newEnd = Math.max(currentStart + sliderStep, currentEnd - sliderStep);
+                slider.noUiSlider.set([currentStart, newEnd]);
+            }
+        }
+
+        function handleMoveRight() {
+            if (!slider) return;
+            
+            const controlType = getSelectedSliderControl();
+            const currentValues = slider.noUiSlider.get();
+            const currentStart = parseFloat(currentValues[0]);
+            const currentEnd = parseFloat(currentValues[1]);
+            const range = slider.noUiSlider.options.range;
+            
+            if (controlType === 'start') {
+                const newStart = Math.min(currentEnd - sliderStep, currentStart + sliderStep);
+                slider.noUiSlider.set([newStart, currentEnd]);
+            } else {
+                const newEnd = Math.min(range.max, currentEnd + sliderStep);
+                // Ensure end doesn't go before start
+                if (newEnd > currentStart) {
+                    slider.noUiSlider.set([currentStart, newEnd]);
+                }
+            }
+        }
+
+        function handleCropAndCopy() {
             if (originalData.length === 0) {
                 updateStatus('No data loaded or slider not initialized.', true);
                 return;
@@ -556,21 +657,27 @@
             croppedData.forEach(row => {
                 csvContent += row.raw + '\n';
             });
-            // Create a blob and trigger download
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement("a");
-            if (link.download !== undefined) {
-                const url = URL.createObjectURL(blob);
-                link.setAttribute("href", url);
-                link.setAttribute("download", `cropped_imu_data_${Math.round(sliderStart)}ms_${Math.round(sliderEnd-sliderStart)}ms.csv`);
-                link.style.visibility = 'hidden';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                updateStatus(`Successfully downloaded ${croppedData.length} cropped data points.`);
-            } else {
-                updateStatus('CSV download not supported by your browser.', true);
-            }
+            // Copy to clipboard
+            navigator.clipboard.writeText(csvContent).then(() => {
+                updateStatus(`Successfully copied ${croppedData.length} cropped data points to clipboard.`);
+            }).catch(err => {
+                // Fallback for older browsers
+                const textArea = document.createElement("textarea");
+                textArea.value = csvContent;
+                textArea.style.position = "fixed";
+                textArea.style.left = "-999999px";
+                textArea.style.top = "-999999px";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    updateStatus(`Successfully copied ${croppedData.length} cropped data points to clipboard.`);
+                } catch (err) {
+                    updateStatus('Failed to copy to clipboard. Please try again.', true);
+                }
+                document.body.removeChild(textArea);
+            });
         }
 
     </script>

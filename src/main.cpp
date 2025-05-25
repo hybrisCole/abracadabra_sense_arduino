@@ -31,7 +31,7 @@ bool ignoreTaps = false;
 // Gesture recording state variables
 bool isRecording = false;
 unsigned long recordingStartTime = 0;
-#define RECORDING_DURATION 2500  // Record for 2.5 seconds (shortened for authentication gestures)
+#define RECORDING_DURATION 4000  // Record for 4 seconds
 
 // Sampling configuration - increasing to 250Hz for better gesture detail
 #define SAMPLE_RATE_MS 4  // Sample every 4ms (approximately 250Hz)
@@ -39,7 +39,7 @@ unsigned long lastSampleTime = 0;
 unsigned long sampleCount = 0;
 
 // Gesture storage constants
-#define MAX_GESTURE_SAMPLES 625     // Maximum samples in a processed gesture (250Hz * 2.5s)
+#define MAX_GESTURE_SAMPLES 1000     // Maximum samples in a processed gesture (250Hz * 4s)
 
 // Gesture authentication settings
 #define AUTH_THRESHOLD 0.75         // Similarity threshold for authentication (0.0-1.0)
@@ -296,6 +296,8 @@ void decodeTapSource(uint8_t tapSource) {
   if (tapSequenceActive && (currentTime - lastNonZeroReadTime > 700)) {
     Serial.println("Tap sequence timed out, resetting");
     tapSequenceActive = false;
+    // Print CSV header here so it appears right before data
+    Serial.println("rel_timestamp,recording_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z");
   }
   
   lastNonZeroReadTime = currentTime;
@@ -694,8 +696,7 @@ void recordSensorData() {
     currentGesture.sampleCount++;
   }
   
-  // Print data in CSV format
-  Serial.print(millis()); Serial.print(",");
+  // Print data in CSV format (removed abs_timestamp)
   Serial.print(millis() - recordingStartTime); Serial.print(",");
   Serial.print(recordingId); Serial.print(",");
   Serial.print(accX, 6); Serial.print(",");
@@ -703,8 +704,7 @@ void recordSensorData() {
   Serial.print(accZ, 6); Serial.print(",");
   Serial.print(gyroX, 6); Serial.print(",");
   Serial.print(gyroY, 6); Serial.print(",");
-  Serial.print(gyroZ, 6); Serial.print(",");
-  Serial.println(authenticationMode ? "auth" : "enroll");
+  Serial.println(gyroZ, 6);
 }
 
 // Calculate and print features after recording is complete
@@ -824,8 +824,9 @@ void handleDoubleTap() {
   
   // Print metadata and CSV header for the data
   printRecordingMetadata();
-  Serial.println("\nRECORDING STARTED - 2.5 second window");
-  Serial.println("abs_timestamp,rel_timestamp,recording_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z,validation_flags,acc_mag,gyro_mag,accel_peaks,gyro_peaks,max_accel_peak,max_gyro_peak,accel_corr_xy,accel_corr_xz,accel_corr_yz,gyro_corr_xy,gyro_corr_xz,gyro_corr_yz,accel_freq_band1,accel_freq_band2,accel_freq_band3,accel_freq_band4,gyro_freq_band1,gyro_freq_band2,gyro_freq_band3,gyro_freq_band4,accel_zcr_x,accel_zcr_y,accel_zcr_z,gyro_zcr_x,gyro_zcr_y,gyro_zcr_z");
+  Serial.println("\nRECORDING STARTED - 4 second window");
+  // Print CSV header here so it appears right before data
+  Serial.println("rel_timestamp,recording_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z");
 }
 
 void setup() {
