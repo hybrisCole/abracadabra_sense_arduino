@@ -73,9 +73,14 @@ int currentReferenceIndex = 0;     // Current reference gesture index (0-2)
 
 // BLE Configuration (for React Native app reference)
 #define BLE_DEVICE_NAME "AbracadabraIMU"
-#define BLE_SERVICE_UUID "12345678-1234-1234-1234-123456789abc"
-#define BLE_DATA_CHAR_UUID "87654321-4321-4321-4321-cba987654321"
-#define BLE_COMMAND_CHAR_UUID "11223344-5566-7788-9900-aabbccddeeff"
+#define BLE_SERVICE_UUID "8cfc8e26-0682-4f72-b0c0-c0c8e0b12a06"
+#define BLE_DATA_CHAR_UUID "780fe2ec-c87c-443e-bf01-78918d9d625b"
+#define BLE_COMMAND_CHAR_UUID "aa7e97b4-d7dc-4cb0-9fef-85875036520e"
+
+// BLE Service and Characteristics
+BLEService gestureService(BLE_SERVICE_UUID);
+BLECharacteristic dataCharacteristic(BLE_DATA_CHAR_UUID, BLERead | BLENotify, 20); // 20 bytes max per notification
+BLECharacteristic commandCharacteristic(BLE_COMMAND_CHAR_UUID, BLEWrite, 20);
 
 // New global variables
 char recordingId[20];  // Buffer to store unique recording ID
@@ -202,8 +207,9 @@ void updateCorrelations();
 void calculateFreqBandEnergy(float* signal, float* energy, int windowSize);
 float calculateZCR(float* signal, int windowSize);
 void updateZCR();
+void handleBLECommand(BLEDevice central, BLECharacteristic characteristic);
 
-// Initialize minimal BLE for device discovery
+// Initialize BLE with proper service and characteristics
 void initializeBLE() {
   if (!BLE.begin()) {
     Serial.println("ERROR: Starting BLE failed!");
@@ -213,14 +219,72 @@ void initializeBLE() {
   // Set the device name that React Native will see
   BLE.setLocalName(BLE_DEVICE_NAME);
   
-  // Start advertising so React Native can discover us
+  // Set up the service
+  BLE.setAdvertisedService(gestureService);
+  
+  // Add characteristics to the service
+  gestureService.addCharacteristic(dataCharacteristic);
+  gestureService.addCharacteristic(commandCharacteristic);
+  
+  // Add the service
+  BLE.addService(gestureService);
+  
+  // Set up characteristic event handlers
+  commandCharacteristic.setEventHandler(BLEWritten, handleBLECommand);
+  
+  // Set initial values for characteristics
+  dataCharacteristic.writeValue(""); // Empty initial value
+  commandCharacteristic.writeValue(""); // Empty initial value
+  
+  // Start advertising
   BLE.advertise();
   
-  Serial.println("BLE advertising started - device discoverable as:");
-  Serial.print("Name: ");
+  Serial.println("BLE service initialized and advertising started:");
+  Serial.print("Device Name: ");
   Serial.println(BLE_DEVICE_NAME);
   Serial.print("MAC Address: ");
   Serial.println(BLE.address());
+  Serial.print("Service UUID: ");
+  Serial.println(BLE_SERVICE_UUID);
+  Serial.print("Data Characteristic UUID: ");
+  Serial.println(BLE_DATA_CHAR_UUID);
+  Serial.print("Command Characteristic UUID: ");
+  Serial.println(BLE_COMMAND_CHAR_UUID);
+}
+
+// Handle BLE command characteristic writes
+void handleBLECommand(BLEDevice central, BLECharacteristic characteristic) {
+  // Read the command data
+  const uint8_t* data = characteristic.value();
+  int length = characteristic.valueLength();
+  
+  if (length > 0) {
+    Serial.print("BLE Command received from ");
+    Serial.print(central.address());
+    Serial.print(": ");
+    
+    // Convert to string for easier handling
+    String command = "";
+    for (int i = 0; i < length; i++) {
+      command += (char)data[i];
+    }
+    
+    Serial.println(command);
+    
+    // Handle different commands
+    if (command == "ping") {
+      Serial.println("Responding to ping command");
+      // Could send a response via data characteristic if needed
+    }
+    else if (command == "status") {
+      Serial.print("Status requested - Connected: ");
+      Serial.println(central.connected() ? "Yes" : "No");
+    }
+    else {
+      Serial.print("Unknown command: ");
+      Serial.println(command);
+    }
+  }
 }
 
 // Display device information for React Native app
@@ -402,7 +466,7 @@ void configureTapDetection() {
 // Generate a unique recording ID based on time and a random number
 void generateRecordingId() {
   // Use current time and a random value to create a unique ID
-  sprintf(recordingId, "g_%lu_%d", millis(), random(1000, 9999));
+  sprintf(recordingId, "g_%lu_%ld", millis(), random(1000, 9999));
 }
 
 // Print metadata about the recording session
@@ -937,8 +1001,38 @@ void setup() {
 }
 
 void loop() {
-  // Poll BLE events (minimal overhead)
+  // Poll BLE events and handle connections
   BLE.poll();
+  
+  // Check for BLE connection events
+  BLEDevice central = BLE.central();
+  static bool wasConnected = false;
+  bool isConnected = central && central.connected();
+  
+  // Handle connection state changes
+  if (isConnected && !wasConnected) {
+    Serial.print("BLE Connected to: ");
+    Serial.println(central.address());
+    // Flash blue LED to indicate BLE connection
+    for (int i = 0; i < 2; i++) {
+      setLEDColor(false, false, true); // Blue
+      delay(100);
+      ledOff();
+      delay(100);
+    }
+  }
+  else if (!isConnected && wasConnected) {
+    Serial.println("BLE Disconnected");
+    // Flash red LED to indicate disconnection
+    for (int i = 0; i < 2; i++) {
+      setLEDColor(true, false, false); // Red
+      delay(100);
+      ledOff();
+      delay(100);
+    }
+  }
+  
+  wasConnected = isConnected;
   
   // Check if we should record sensor data during recording window
   if (isRecording) {
