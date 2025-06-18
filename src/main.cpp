@@ -3,6 +3,7 @@
 #include <LSM6DS3.h>
 #include <stdint.h>
 #include <algorithm>  // For std::min
+#include <ArduinoBLE.h>
 
 // Create IMU object - XIAO nRF52840 Sense has built-in LSM6DS3
 LSM6DS3 imu(I2C_MODE);  // Using default I2C address 0x6A
@@ -69,6 +70,12 @@ int currentReferenceIndex = 0;     // Current reference gesture index (0-2)
 #define DEVICE_ID "xiao_sense_001"  // Unique identifier for this device
 #define ACCEL_SATURATION_THRESHOLD 8.0  // Threshold to detect potential sensor saturation (in g)
 #define GYRO_SATURATION_THRESHOLD 1000.0  // Threshold for gyro saturation (in dps)
+
+// BLE Configuration (for React Native app reference)
+#define BLE_DEVICE_NAME "AbracadabraIMU"
+#define BLE_SERVICE_UUID "12345678-1234-1234-1234-123456789abc"
+#define BLE_DATA_CHAR_UUID "87654321-4321-4321-4321-cba987654321"
+#define BLE_COMMAND_CHAR_UUID "11223344-5566-7788-9900-aabbccddeeff"
 
 // New global variables
 char recordingId[20];  // Buffer to store unique recording ID
@@ -195,6 +202,40 @@ void updateCorrelations();
 void calculateFreqBandEnergy(float* signal, float* energy, int windowSize);
 float calculateZCR(float* signal, int windowSize);
 void updateZCR();
+
+// Initialize minimal BLE for device discovery
+void initializeBLE() {
+  if (!BLE.begin()) {
+    Serial.println("ERROR: Starting BLE failed!");
+    while(1);
+  }
+  
+  // Set the device name that React Native will see
+  BLE.setLocalName(BLE_DEVICE_NAME);
+  
+  // Start advertising so React Native can discover us
+  BLE.advertise();
+  
+  Serial.println("BLE advertising started - device discoverable as:");
+  Serial.print("Name: ");
+  Serial.println(BLE_DEVICE_NAME);
+  Serial.print("MAC Address: ");
+  Serial.println(BLE.address());
+}
+
+// Display device information for React Native app
+void displayDeviceInfo() {
+  Serial.println("\n=== DEVICE INFORMATION FOR REACT NATIVE ===");
+  Serial.print("Device Name: ");
+  Serial.println(BLE_DEVICE_NAME);
+  Serial.print("Service UUID: ");
+  Serial.println(BLE_SERVICE_UUID);
+  Serial.print("Data Characteristic UUID: ");
+  Serial.println(BLE_DATA_CHAR_UUID);
+  Serial.print("Command Characteristic UUID: ");
+  Serial.println(BLE_COMMAND_CHAR_UUID);
+  Serial.println("============================================\n");
+}
 
 // Calculate the magnitude of acceleration vectors
 float calculateAccMagnitude(float x, float y, float z) {
@@ -866,6 +907,12 @@ void setup() {
   
   Serial.println("LSM6DS3 initialized successfully");
   
+  // Initialize BLE for React Native discovery
+  initializeBLE();
+  
+  // Display device information for React Native app
+  displayDeviceInfo();
+  
   // Run basic calibration on startup
   Serial.println("Performing initial calibration...");
   Serial.println("Please place device on a flat surface and keep it still.");
@@ -890,6 +937,9 @@ void setup() {
 }
 
 void loop() {
+  // Poll BLE events (minimal overhead)
+  BLE.poll();
+  
   // Check if we should record sensor data during recording window
   if (isRecording) {
     unsigned long currentTime = millis();
