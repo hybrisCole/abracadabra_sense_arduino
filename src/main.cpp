@@ -191,6 +191,23 @@ float gyroZZCRWindow[ZCR_WINDOW_SIZE];
 int zcrWindowIndex = 0;
 bool zcrWindowFull = false;
 
+// Binary data packet structure for BLE transmission (exactly 20 bytes)
+typedef struct __attribute__((packed)) {
+  uint16_t timestamp;     // Relative milliseconds since recording start (0-65535ms)
+  uint16_t sampleId;      // Incremental sample number (0-65535)
+  int16_t accX;          // Accelerometer X * 1000 (preserves 3 decimal places)
+  int16_t accY;          // Accelerometer Y * 1000 
+  int16_t accZ;          // Accelerometer Z * 1000
+  int16_t gyroX;         // Gyroscope X * 10 (preserves 1 decimal place)
+  int16_t gyroY;         // Gyroscope Y * 10
+  int16_t gyroZ;         // Gyroscope Z * 10
+  uint32_t recordingHash; // Hash of recording ID for packet identification
+} BLESensorPacket;
+
+// Global variables for BLE data transmission
+uint16_t bleSampleCounter = 0;        // Counter for BLE sample IDs
+uint32_t currentRecordingHash = 0;    // Hash of current recording ID
+
 // Forward declarations
 void processGestureData(GestureData* gesture);
 void showRecordingProgress(unsigned long elapsedTime);
@@ -208,6 +225,8 @@ void calculateFreqBandEnergy(float* signal, float* energy, int windowSize);
 float calculateZCR(float* signal, int windowSize);
 void updateZCR();
 void handleBLECommand(BLEDevice central, BLECharacteristic characteristic);
+uint32_t hashString(const char* str);
+void sendBLESensorData(float accX, float accY, float accZ, float gyroX, float gyroY, float gyroZ);
 
 // Initialize BLE with proper service and characteristics
 void initializeBLE() {
@@ -250,6 +269,58 @@ void initializeBLE() {
   Serial.println(BLE_DATA_CHAR_UUID);
   Serial.print("Command Characteristic UUID: ");
   Serial.println(BLE_COMMAND_CHAR_UUID);
+}
+
+// Simple hash function for recording ID
+uint32_t hashString(const char* str) {
+  uint32_t hash = 5381;
+  int c;
+  while ((c = *str++)) {
+    hash = ((hash << 5) + hash) + c; // hash * 33 + c
+  }
+  return hash;
+}
+
+// Send sensor data via BLE as binary packet
+void sendBLESensorData(float accX, float accY, float accZ, float gyroX, float gyroY, float gyroZ) {
+  // Check if BLE is connected
+  BLEDevice central = BLE.central();
+  if (!central || !central.connected()) {
+    return; // No connected device, skip BLE transmission
+  }
+  
+  // Create binary data packet
+  BLESensorPacket packet;
+  
+  // Fill packet data
+  packet.timestamp = (uint16_t)(millis() - recordingStartTime); // Relative timestamp
+  packet.sampleId = bleSampleCounter++;
+  
+  // Scale and convert accelerometer data (preserve 3 decimal places)
+  packet.accX = (int16_t)(accX * 1000.0f);
+  packet.accY = (int16_t)(accY * 1000.0f);
+  packet.accZ = (int16_t)(accZ * 1000.0f);
+  
+  // Scale and convert gyroscope data (preserve 1 decimal place)
+  packet.gyroX = (int16_t)(gyroX * 10.0f);
+  packet.gyroY = (int16_t)(gyroY * 10.0f);
+  packet.gyroZ = (int16_t)(gyroZ * 10.0f);
+  
+  // Add recording ID hash
+  packet.recordingHash = currentRecordingHash;
+  
+  // Send binary data via BLE notification
+  dataCharacteristic.writeValue((uint8_t*)&packet, sizeof(BLESensorPacket));
+  
+  // Optional: Debug print packet info (can be removed for production)
+  static unsigned long lastDebugPrint = 0;
+  if (millis() - lastDebugPrint > 1000) { // Print debug info every second
+    Serial.print("BLE: Sent sample #");
+    Serial.print(packet.sampleId);
+    Serial.print(" to ");
+    Serial.println(central.address());
+    lastDebugPrint = millis();
+  }
 }
 
 // Handle BLE command characteristic writes
@@ -801,7 +872,10 @@ void recordSensorData() {
     currentGesture.sampleCount++;
   }
   
-  // Print data in CSV format (removed abs_timestamp)
+  // Send data via BLE (binary format)
+  sendBLESensorData(accX, accY, accZ, gyroX, gyroY, gyroZ);
+  
+  // Print data in CSV format for debugging (kept for development)
   Serial.print(millis() - recordingStartTime); Serial.print(",");
   Serial.print(recordingId); Serial.print(",");
   Serial.print(accX, 6); Serial.print(",");
@@ -849,6 +923,10 @@ void handleDoubleTap() {
   // Generate new recording ID and set absolute start time
   generateRecordingId();
   absoluteStartTime = millis();
+  
+  // Initialize BLE transmission variables
+  bleSampleCounter = 0;
+  currentRecordingHash = hashString(recordingId);
   
   // Add delay before starting recording to avoid accidental motion
   Serial.println("Preparing to record in 350ms...");
@@ -930,7 +1008,16 @@ void handleDoubleTap() {
   // Print metadata and CSV header for the data
   printRecordingMetadata();
   Serial.println("\nRECORDING STARTED - 4 second window");
+  
+  // Print BLE packet information
+  Serial.println("\nBLE Binary Packet Format (20 bytes):");
+  Serial.print("Recording Hash: 0x");
+  Serial.println(currentRecordingHash, HEX);
+  Serial.println("Packet Structure: [timestamp][sampleId][accX][accY][accZ][gyroX][gyroY][gyroZ][hash]");
+  Serial.println("Data Scaling: Accel x1000 (±32.767g), Gyro x10 (±3276.7dps)");
+  
   // Print CSV header here so it appears right before data
+  Serial.println("\nCSV Debug Output:");
   Serial.println("rel_timestamp,recording_id,acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z");
 }
 
