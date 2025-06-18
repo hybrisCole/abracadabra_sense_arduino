@@ -191,8 +191,15 @@ float gyroZZCRWindow[ZCR_WINDOW_SIZE];
 int zcrWindowIndex = 0;
 bool zcrWindowFull = false;
 
+// Packet types for BLE transmission
+#define PACKET_TYPE_SESSION_START 0x01
+#define PACKET_TYPE_SENSOR_DATA   0x02
+#define PACKET_TYPE_SESSION_END   0x03
+
 // Binary data packet structure for BLE transmission (exactly 20 bytes)
 typedef struct __attribute__((packed)) {
+  uint8_t packetType;     // Packet type (START/DATA/END)
+  uint8_t reserved;       // Reserved for future use (padding)
   uint16_t timestamp;     // Relative milliseconds since recording start (0-65535ms)
   uint16_t sampleId;      // Incremental sample number (0-65535)
   int16_t accX;          // Accelerometer X * 1000 (preserves 3 decimal places)
@@ -202,7 +209,7 @@ typedef struct __attribute__((packed)) {
   int16_t gyroY;         // Gyroscope Y * 10
   int16_t gyroZ;         // Gyroscope Z * 10
   uint32_t recordingHash; // Hash of recording ID for packet identification
-} BLESensorPacket;
+} BLEPacket;
 
 // Global variables for BLE data transmission
 uint16_t bleSampleCounter = 0;        // Counter for BLE sample IDs
@@ -227,6 +234,8 @@ void updateZCR();
 void handleBLECommand(BLEDevice central, BLECharacteristic characteristic);
 uint32_t hashString(const char* str);
 void sendBLESensorData(float accX, float accY, float accZ, float gyroX, float gyroY, float gyroZ);
+void sendBLESessionStart();
+void sendBLESessionEnd();
 
 // Initialize BLE with proper service and characteristics
 void initializeBLE() {
@@ -290,9 +299,11 @@ void sendBLESensorData(float accX, float accY, float accZ, float gyroX, float gy
   }
   
   // Create binary data packet
-  BLESensorPacket packet;
+  BLEPacket packet;
   
   // Fill packet data
+  packet.packetType = PACKET_TYPE_SENSOR_DATA;
+  packet.reserved = 0;
   packet.timestamp = (uint16_t)(millis() - recordingStartTime); // Relative timestamp
   packet.sampleId = bleSampleCounter++;
   
@@ -310,17 +321,77 @@ void sendBLESensorData(float accX, float accY, float accZ, float gyroX, float gy
   packet.recordingHash = currentRecordingHash;
   
   // Send binary data via BLE notification
-  dataCharacteristic.writeValue((uint8_t*)&packet, sizeof(BLESensorPacket));
+  dataCharacteristic.writeValue((uint8_t*)&packet, sizeof(BLEPacket));
   
   // Optional: Debug print packet info (can be removed for production)
   static unsigned long lastDebugPrint = 0;
   if (millis() - lastDebugPrint > 1000) { // Print debug info every second
-    Serial.print("BLE: Sent sample #");
+    Serial.print("BLE: Sent sensor sample #");
     Serial.print(packet.sampleId);
     Serial.print(" to ");
     Serial.println(central.address());
     lastDebugPrint = millis();
   }
+}
+
+// Send session start notification via BLE
+void sendBLESessionStart() {
+  // Check if BLE is connected
+  BLEDevice central = BLE.central();
+  if (!central || !central.connected()) {
+    return; // No connected device, skip BLE transmission
+  }
+  
+  // Create session start packet
+  BLEPacket packet;
+  memset(&packet, 0, sizeof(BLEPacket)); // Clear all fields
+  
+  // Fill session start data
+  packet.packetType = PACKET_TYPE_SESSION_START;
+  packet.reserved = 0;
+  packet.timestamp = 0; // Session start timestamp is always 0
+  packet.sampleId = 0; // Reset sample counter
+  packet.recordingHash = currentRecordingHash;
+  
+  // Send session start notification
+  dataCharacteristic.writeValue((uint8_t*)&packet, sizeof(BLEPacket));
+  
+  Serial.print("BLE: Sent SESSION_START notification to ");
+  Serial.print(central.address());
+  Serial.print(" (Hash: 0x");
+  Serial.print(currentRecordingHash, HEX);
+  Serial.println(")");
+}
+
+// Send session end notification via BLE
+void sendBLESessionEnd() {
+  // Check if BLE is connected
+  BLEDevice central = BLE.central();
+  if (!central || !central.connected()) {
+    return; // No connected device, skip BLE transmission
+  }
+  
+  // Create session end packet
+  BLEPacket packet;
+  memset(&packet, 0, sizeof(BLEPacket)); // Clear all fields
+  
+  // Fill session end data
+  packet.packetType = PACKET_TYPE_SESSION_END;
+  packet.reserved = 0;
+  packet.timestamp = (uint16_t)(millis() - recordingStartTime); // Total recording duration
+  packet.sampleId = bleSampleCounter - 1; // Total samples sent
+  packet.recordingHash = currentRecordingHash;
+  
+  // Send session end notification
+  dataCharacteristic.writeValue((uint8_t*)&packet, sizeof(BLEPacket));
+  
+  Serial.print("BLE: Sent SESSION_END notification to ");
+  Serial.print(central.address());
+  Serial.print(" (Duration: ");
+  Serial.print(packet.timestamp);
+  Serial.print("ms, Samples: ");
+  Serial.print(packet.sampleId + 1);
+  Serial.println(")");
 }
 
 // Handle BLE command characteristic writes
@@ -1005,6 +1076,9 @@ void handleDoubleTap() {
     gyroZCR[i] = 0;
   }
   
+  // Send session start notification via BLE
+  sendBLESessionStart();
+  
   // Print metadata and CSV header for the data
   printRecordingMetadata();
   Serial.println("\nRECORDING STARTED - 4 second window");
@@ -1013,7 +1087,8 @@ void handleDoubleTap() {
   Serial.println("\nBLE Binary Packet Format (20 bytes):");
   Serial.print("Recording Hash: 0x");
   Serial.println(currentRecordingHash, HEX);
-  Serial.println("Packet Structure: [timestamp][sampleId][accX][accY][accZ][gyroX][gyroY][gyroZ][hash]");
+  Serial.println("Packet Structure: [type][reserved][timestamp][sampleId][accX][accY][accZ][gyroX][gyroY][gyroZ][hash]");
+  Serial.println("Packet Types: START=0x01, DATA=0x02, END=0x03");
   Serial.println("Data Scaling: Accel x1000 (±32.767g), Gyro x10 (±3276.7dps)");
   
   // Print CSV header here so it appears right before data
@@ -1159,6 +1234,9 @@ void loop() {
     if (currentTime - recordingStartTime >= RECORDING_DURATION) {
       // Recording window ended
       isRecording = false;
+      
+      // Send session end notification via BLE
+      sendBLESessionEnd();
       
       // Update status LED to indicate recording is complete
       setLEDColor(false, true, false); // Green - recording complete
